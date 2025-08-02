@@ -1,11 +1,11 @@
 {
-	"folders": [
-		{
-			"path": "../fastapi_project"
-		},
-		{
-			"path": "."
-		}
-	],
-	"settings": {}
+  "folders": [
+    {
+      "path": "."
+    }
+  ],
+  "settings": {
+    "terminal.integrated.cwd": "C:\\Users\\user\\Documents\\nova_ai_assistant",
+    "python.defaultInterpreterPath": "venv\\Scripts\\python.exe"
+  }
 }

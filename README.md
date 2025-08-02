@@ -36,7 +36,7 @@ She listens to your commands, speaks in 5 languages, opens apps, takes notes, se
 
 ## 🖼️ NOVA Branding
 
-<img src="assets/nova_gui_face.png" width="300" alt="NOVA GUI Face">
+<img src="assets/nova_face.png" width="300" alt="NOVA GUI Face">
 
 ---
 

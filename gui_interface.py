@@ -13,7 +13,7 @@ class NovaGUI:
         self.root.resizable(False, False)
 
         # 🖼️ Nova Branding Face
-        image_path = os.path.join("assets", "nova_gui_face.png")
+        image_path = os.path.join("assets", "nova_face.png")
         if not os.path.exists(image_path):
             raise FileNotFoundError("nova_face.png not found in project directory.")
 
