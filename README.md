@@ -36,26 +36,25 @@ She listens to your commands, speaks in 5 languages, opens apps, takes notes, se
 
 ## 🖼️ NOVA Branding
 
-<img src="assets/nova_face.png" width="300" alt="NOVA GUI Face">
+<p align="center">
+  <img src="assets/nova_face.png" alt="NOVA GUI Face" width="300">
+</p>
 
 ---
 
 ## 🛠️ Tech Stack
 
-- Python 3.11
-- Pyttsx3 + SpeechRecognition
-- Tkinter GUI
-- Requests, Wikipedia API
-- PowerShell/System APIs
-- Multilingual i18n
+- Python 3.11  
+- Pyttsx3 + SpeechRecognition  
+- Tkinter GUI  
+- Requests, Wikipedia API  
+- PowerShell/System APIs  
+- Multilingual i18n  
 - Soon: `pyinstaller` for `.exe` build
 
 ---
 
-
 ## 👨‍💻 Author
 
-**Vikey Sharma**   
+**Vikey Sharma**  
 GitHub: [Vikey-14](https://github.com/Vikey-14)
-
----
