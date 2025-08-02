@@ -51,8 +51,7 @@ nova_memory.json
 nova_notes.json
 
 # 📷 Ignore generated images/snapshots (optional)
-*.png
-nova_face*.png
+# ❌ Removed *.png and nova_face*.png to allow Git tracking
 nova_face_assets/
 
 # 📜 Ignore temporary packaging files
