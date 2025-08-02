@@ -20,7 +20,7 @@ She listens to your commands, speaks in 5 languages, opens apps, takes notes, se
 
 ## 🗂️ Project Structure
 
-📦 nova_ai_assistant/  
+📦 nova_ai_assistant/
 ├── core_engine.py           # Main command processor  
 ├── gui_interface.py         # GUI + visual interface  
 ├── main.py                  # App entry point  
@@ -28,16 +28,19 @@ She listens to your commands, speaks in 5 languages, opens apps, takes notes, se
 ├── news_handler.py          # News API logic  
 ├── utils.py                 # Voice I/O, language utils  
 ├── weather_handler.py       # Weather API integration  
-├── assets/                  # Images, icons, GUI assets  
+├── nova_face.png            # GUI branding image (NOVA face)
+├── assets/                  # (Reserved) images, icons, GUI assets  
 ├── data/                    # Saved notes and config  
-└── .env                     # API keys and configs
+├── .env                     # API keys and configs  
+├── .gitignore               # Git ignore rules  
+└── README.md                # Project documentation  
 
 ---
 
 ## 🖼️ NOVA Branding
 
 <p align="center">
-  <img src="assets/nova_face.png" alt="NOVA GUI Face" width="300">
+  <img src="nova_face.png" alt="NOVA GUI Face" width="300">
 </p>
 
 ---
