@@ -1,0 +1,61 @@
+# 🚫 Python cache and build artifacts
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+
+# 💾 Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# ⚙️ Editor and IDE settings
+.vscode/
+.idea/
+*.iml
+
+# 🗑️ System files (Windows/macOS)
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# 🔐 Sensitive data
+.env
+*.key
+*.pem
+
+# 🧪 Test artifacts
+htmlcov/
+.coverage
+coverage.xml
+*.cover
+*.pytest_cache/
+.nova_logs/
+
+# 📦 Application data / system cache
+*.log
+*.bin
+*.blb
+*.db
+AppData/
+
+# 🧠 Ignore generated memory and note files
+notes/
+reminders/
+nova_memory.json
+nova_notes.json
+
+# 📷 Ignore generated images/snapshots (optional)
+*.png
+nova_face*.png
+nova_face_assets/
+
+# 📜 Ignore temporary packaging files
+nova_setup/
+*.spec
+nova.exe

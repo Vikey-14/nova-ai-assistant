@@ -1,0 +1,15 @@
+# 🔒 Do not track secrets or keys
+.env
+
+# 🧹 Ignore Python cache and build files
+__pycache__/
+*.pyc
+*.pyo
+
+# 🔧 VSCode or IDE stuff
+.vscode/
+.idea/
+
+# 🔊 Optional: logs, recordings, screenshots
+logs/
+recordings/
