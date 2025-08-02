@@ -20,25 +20,23 @@ She listens to your commands, speaks in 5 languages, opens apps, takes notes, se
 
 ## 🗂️ Project Structure
 
-📦 nova_ai_assistant/
-├── core_engine.py # Main command processor
-├── gui_interface.py # GUI + visual interface
-├── main.py # App entry point
-├── memory_handler.py # Notes & reminder engine
-├── news_handler.py # News API logic
-├── utils.py # Voice I/O, language utils
-├── weather_handler.py # Weather API integration
-├── assets/ # Images, icons, GUI assets
-├── data/ # Saved notes and config
-└── .env # API keys and configs
-
-
+📦 nova_ai_assistant/  
+├── core_engine.py           # Main command processor  
+├── gui_interface.py         # GUI + visual interface  
+├── main.py                  # App entry point  
+├── memory_handler.py        # Notes & reminder engine  
+├── news_handler.py          # News API logic  
+├── utils.py                 # Voice I/O, language utils  
+├── weather_handler.py       # Weather API integration  
+├── assets/                  # Images, icons, GUI assets  
+├── data/                    # Saved notes and config  
+└── .env                     # API keys and configs
 
 ---
 
 ## 🖼️ NOVA Branding
 
-![NOVA Logo](assets/nova_logo.png) <!-- Replace with your actual logo path -->
+<img src="assets/nova_gui_face.png" width="300" alt="NOVA GUI Face">
 
 ---
 
