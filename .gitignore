@@ -14,7 +14,7 @@ venv/
 env/
 ENV/
 .venv/
-.venv*/        # sometimes VS Code makes .venv1, etc.
+.venv*/          # sometimes VS Code makes .venv1, .venv2, etc.
 
 # ⚙️ Editor and IDE settings
 .vscode/
