@@ -3,20 +3,28 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.egg
 *.egg-info/
 dist/
 build/
+pip-wheel-metadata/
 
 # 💾 Virtual environments
 venv/
 env/
 ENV/
 .venv/
+.venv*/        # sometimes VS Code makes .venv1, etc.
 
 # ⚙️ Editor and IDE settings
 .vscode/
 .idea/
 *.iml
+
+# 🗒️ Common dev caches
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
 
 # 🗑️ System files (Windows/macOS)
 .DS_Store
@@ -26,12 +34,15 @@ desktop.ini
 
 # 🔐 Sensitive data
 .env
+.env.*
 *.key
 *.pem
+.python-version
 
 # 🧪 Test artifacts
 htmlcov/
 .coverage
+.coverage.*
 coverage.xml
 *.cover
 *.pytest_cache/
@@ -42,6 +53,7 @@ coverage.xml
 *.bin
 *.blb
 *.db
+*.db-journal
 AppData/
 
 # 🧠 Ignore generated memory and note files
@@ -50,12 +62,23 @@ reminders/
 nova_memory.json
 nova_notes.json
 
-# 📷 Ignore generated images/snapshots (optional)
-# ❌ Removed *.png and nova_face*.png to allow Git tracking
+# 🖼️ Generated image/snapshot area (keep PNGs tracked elsewhere)
 nova_face_assets/
 
-# 📜 Ignore temporary packaging files
+# 📜 Packaging / bundle outputs
 nova_setup/
 *.spec
 nova.exe
-~
+
+# 🧾 Project-specific logs (your app writes these as .txt/.csv)
+interaction_log.txt
+interaction_log.csv
+nova_logs.txt
+
+# 🧹 Misc temp/backup files
+*~
+*.tmp
+*.bak
+*.orig
+*.rej
+nohup.out
