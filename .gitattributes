@@ -1,0 +1,33 @@
+# --- Default normalization ---
+*               text=auto
+
+# --- Force LF for source/text files (stops LFCRLF warnings) ---
+*.py            text eol=lf
+*.json          text eol=lf
+*.ipynb         text eol=lf
+*.md            text eol=lf
+*.txt           text eol=lf
+*.csv           text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.toml          text eol=lf
+*.ini           text eol=lf
+*.iss           text eol=lf
+
+# --- Windows script files keep CRLF (optional but nice on Windows) ---
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+*.ps1           text eol=crlf
+
+# --- Binary files (no EOL conversion / nicer diffs) ---
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.mp3           binary
+*.wav           binary
+*.pdf           binary
+*.bin           binary
+*.db            binary
+*.exe           binary
