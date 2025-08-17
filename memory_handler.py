@@ -1,104 +1,192 @@
-# 📁 memory_handler.py
+# memory_handler.py
+from __future__ import annotations
 
 import json
 import os
+import threading
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-# 📌 Paths
-MEMORY_FILE = "data/memory.json"
-NOTES_FILE = "data/notes.json"
+# Use utils helpers so paths/logs work in dev + PyInstaller
+from utils import pkg_path, logger
 
-# 🧠 Ensure memory file exists
-def init_memory():
-    if not os.path.exists(MEMORY_FILE):
-        with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-            json.dump({}, f)
+# ------------------------------------------------------------------------------
+# Paths (absolute, PyInstaller-safe)
+# ------------------------------------------------------------------------------
+DATA_DIR: Path = pkg_path("data")
+DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-# 💾 Save a key-value pair to memory
-def save_to_memory(key, value):
-    init_memory()
-    with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    data[key] = value
-    with open(MEMORY_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
+MEMORY_PATH: Path = DATA_DIR / "memory.json"
+NOTES_PATH:  Path = DATA_DIR / "notes.json"
 
-# 🔎 Retrieve a value by key
-def load_from_memory(key):
-    init_memory()
-    with open(MEMORY_FILE, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    return data.get(key)
+# Single process-wide lock to protect JSON read/writes
+_LOCK = threading.Lock()
 
-# 📝 Save a voice note to notes.json
-def save_note(content):
-    notes = []
 
-    # Load existing notes
-    if os.path.exists(NOTES_FILE):
-        with open(NOTES_FILE, "r", encoding="utf-8") as f:
-            notes = json.load(f)
+# ------------------------------------------------------------------------------
+# Low-level JSON helpers (safe + atomic)
+# ------------------------------------------------------------------------------
+def _atomic_dump_json(path: Path, obj: Any) -> None:
+    """
+    Write JSON atomically to avoid corruption (TMP -> replace).
+    """
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        json.dump(obj, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, path)  # atomic on Windows & POSIX
 
-    # Add new note with timestamp
-    notes.append({
-        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "content": content
-    })
 
-    # Save back to file
-    with open(NOTES_FILE, "w", encoding="utf-8") as f:
-        json.dump(notes, f, indent=2, ensure_ascii=False)
-
-# 📖 Load all notes
-def load_notes():
-    if os.path.exists(NOTES_FILE):
-        with open(NOTES_FILE, "r", encoding="utf-8") as f:
+def _load_json_or_default(path: Path, default: Any) -> Any:
+    """
+    Read JSON safely. If missing or invalid, return default.
+    """
+    if not path.exists():
+        return default
+    try:
+        with path.open("r", encoding="utf-8") as f:
             return json.load(f)
-    return []
+    except Exception as e:
+        logger.warning(f"[memory_handler] Failed to read {path.name}: {e} — using default")
+        return default
 
-# 🗑️ Delete a specific note by index or keyword
-def delete_specific_note(index=None, keyword=None):
-    if not os.path.exists(NOTES_FILE):
-        return False
 
-    with open(NOTES_FILE, "r", encoding="utf-8") as f:
-        notes = json.load(f)
+def _ensure_files():
+    """
+    Ensure memory.json and notes.json exist (with sane defaults).
+    """
+    with _LOCK:
+        if not MEMORY_PATH.exists():
+            _atomic_dump_json(MEMORY_PATH, {})
+            logger.info("🧠 Created new memory.json")
+        if not NOTES_PATH.exists():
+            _atomic_dump_json(NOTES_PATH, [])
+            logger.info("🗒️  Created new notes.json")
 
-    original_count = len(notes)
 
-    # 🎯 Delete by index (1-based)
-    if index is not None and 1 <= index <= len(notes):
-        del notes[index - 1]
+# ------------------------------------------------------------------------------
+# Public API — Memory (key/value)
+# ------------------------------------------------------------------------------
+def init_memory() -> None:
+    _ensure_files()
 
-    # 🔍 Delete by keyword
-    elif keyword:
-        notes = [note for note in notes if keyword.lower() not in note['content'].lower()]
 
-    else:
-        return False  # ❌ No valid deletion condition
+def save_to_memory(key: str, value: Any) -> None:
+    _ensure_files()
+    with _LOCK:
+        data: Dict[str, Any] = _load_json_or_default(MEMORY_PATH, {})
+        data[key] = value
+        _atomic_dump_json(MEMORY_PATH, data)
+    logger.info(f"💾 Saved to memory: {key} = {value}")
 
-    # 💾 Save updated notes
-    with open(NOTES_FILE, "w", encoding="utf-8") as f:
-        json.dump(notes, f, indent=2, ensure_ascii=False)
 
-    return len(notes) < original_count  # ✅ True if deletion happened
+def load_from_memory(key: str) -> Any:
+    _ensure_files()
+    with _LOCK:
+        data: Dict[str, Any] = _load_json_or_default(MEMORY_PATH, {})
+        value = data.get(key)
+    logger.info(f"🔎 Loaded from memory: {key} = {value}")
+    return value
 
-# 🚫 Delete all notes
-def clear_all_notes():
-    if os.path.exists(NOTES_FILE):
-        with open(NOTES_FILE, "w", encoding="utf-8") as f:
-            json.dump([], f, indent=2, ensure_ascii=False)
 
-# 🔍 Search notes by keyword
-def search_notes(keyword):
+def clear_memory(key: Optional[str] = None) -> None:
+    _ensure_files()
+    with _LOCK:
+        data: Dict[str, Any] = _load_json_or_default(MEMORY_PATH, {})
+        if key is None:
+            data.clear()
+            logger.info("🧹 Cleared entire memory")
+        else:
+            removed = data.pop(key, None)
+            logger.info(f"🧹 Cleared memory key: {key} — Found: {removed is not None}")
+        _atomic_dump_json(MEMORY_PATH, data)
+
+
+# ------------------------------------------------------------------------------
+# Public API — Notes (list of {timestamp, content})
+# ------------------------------------------------------------------------------
+def save_note(content: str) -> None:
+    _ensure_files()
+    with _LOCK:
+        notes: List[Dict[str, str]] = _load_json_or_default(NOTES_PATH, [])
+        notes.append({
+            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "content": content
+        })
+        _atomic_dump_json(NOTES_PATH, notes)
+    logger.info(f"📝 Saved new note: {content}")
+
+
+def load_notes() -> List[Dict[str, str]]:
+    _ensure_files()
+    with _LOCK:
+        notes: List[Dict[str, str]] = _load_json_or_default(NOTES_PATH, [])
+    logger.info(f"📖 Loaded {len(notes)} notes")
+    return notes
+
+
+def delete_specific_note(index: Optional[int] = None, keyword: Optional[str] = None) -> bool:
+    _ensure_files()
+    with _LOCK:
+        notes: List[Dict[str, str]] = _load_json_or_default(NOTES_PATH, [])
+        original_count = len(notes)
+        success = False
+
+        if index is not None and 1 <= index <= len(notes):
+            del notes[index - 1]
+            success = True
+            logger.info(f"🗑️ Deleted note at index {index}")
+
+        elif keyword:
+            notes = [n for n in notes if keyword.lower() not in n.get("content", "").lower()]
+            success = len(notes) < original_count
+            logger.info(f"🗑️ Deleted notes matching keyword: {keyword}")
+
+        if success:
+            _atomic_dump_json(NOTES_PATH, notes)
+
+    return success
+
+
+def clear_all_notes() -> None:
+    _ensure_files()
+    with _LOCK:
+        _atomic_dump_json(NOTES_PATH, [])
+    logger.info("🗑️ Cleared all notes")
+
+
+def search_notes(keyword: str) -> List[Dict[str, str]]:
     if not keyword:
         return []
-
     notes = load_notes()
-    return [note for note in notes if keyword.lower() in note["content"].lower()]
+    results = [n for n in notes if keyword.lower() in n.get("content", "").lower()]
+    logger.info(f"🔍 Found {len(results)} matching notes for: {keyword}")
+    return results
 
-# 🖨️ Print all notes with indexes to terminal (for user reference)
-def print_all_notes():
+
+def update_note(index: int, new_content: str) -> bool:
+    _ensure_files()
+    with _LOCK:
+        notes: List[Dict[str, str]] = _load_json_or_default(NOTES_PATH, [])
+        if 1 <= index <= len(notes):
+            old = notes[index - 1].get("content", "")
+            notes[index - 1]["content"] = new_content
+            _atomic_dump_json(NOTES_PATH, notes)
+            logger.info(f"✏️ Updated note {index}: '{old}' → '{new_content}'")
+            return True
+        else:
+            logger.warning(f"⚠️ Invalid note index: {index}")
+            return False
+
+
+# ------------------------------------------------------------------------------
+# Optional helpers for dev/diagnostics
+# ------------------------------------------------------------------------------
+def print_all_notes() -> None:
+    """
+    Prints to stdout. In the frozen GUI build (console=False) this won’t be visible,
+    but it’s handy during development.
+    """
     notes = load_notes()
     if not notes:
         print("📝 No notes found.")
@@ -106,19 +194,15 @@ def print_all_notes():
 
     print("\n📒 Saved Notes:")
     for i, note in enumerate(notes, 1):
-        print(f"{i}. [{note['timestamp']}] {note['content']}")
+        print(f"{i}. [{note.get('timestamp','')}] {note.get('content','')}")
 
-# ✏️ Update a specific note by index
-def update_note(index, new_content):
-    if not os.path.exists(NOTES_FILE):
-        return False
 
-    with open(NOTES_FILE, "r", encoding="utf-8") as f:
-        notes = json.load(f)
-
-    if 1 <= index <= len(notes):
-        notes[index - 1]["content"] = new_content
-        with open(NOTES_FILE, "w", encoding="utf-8") as f:
-            json.dump(notes, f, indent=2, ensure_ascii=False)
-        return True
-    return False
+def read_notes() -> str:
+    """
+    Returns raw JSON text for quick inspection (dev helper).
+    """
+    _ensure_files()
+    with _LOCK:
+        if NOTES_PATH.exists():
+            return NOTES_PATH.read_text(encoding="utf-8")
+    return "No notes found."

@@ -1,13 +1,15 @@
 import requests
 import os
 from dotenv import load_dotenv
-from utils import _speak_multilang, selected_language
 
 # 🚀 Load env vars
 load_dotenv()
 NEWS_API_KEY = os.getenv("NEWS_API_KEY")
 
 def get_headlines(country="in", count=5):
+    # 🧠 Lazy import to avoid circular import with utils.py
+    from utils import _speak_multilang, selected_language
+
     if not NEWS_API_KEY:
         print("❌ NEWS_API_KEY not set.")
         return
@@ -28,22 +30,22 @@ def get_headlines(country="in", count=5):
             _speak_multilang(
                 "No news articles found.",
                 hi="कोई समाचार नहीं मिला।",
-                fr="Aucun article trouvé.",
-                es="No se encontraron noticias.",
-                de="Keine Nachrichten gefunden."
+                fr="Aucun article n’a été trouvé.",
+                es="No he encontrado ningún artículo de noticias.",
+                de="Ich habe keine Nachrichtenartikel gefunden."
             )
             return
 
         _speak_multilang(
             f"Here are the top {count} news headlines:",
             hi=f"यहाँ शीर्ष {count} खबरें हैं:",
-            fr=f"Voici les {count} principaux titres :",
-            es=f"Aquí están las {count} principales noticias:",
-            de=f"Hier sind die Top {count} Schlagzeilen:"
+            fr=f"Voici les {count} principaux titres d’actualité :",
+            es=f"Aquí están los {count} principales titulares de noticias:",
+            de=f"Hier sind die {count} wichtigsten Schlagzeilen:"
         )
 
         for i, article in enumerate(articles, start=1):
-            headline = article["title"]
+            headline = article.get("title", "No title available.")
             print(f"📰 {i}. {headline}")
             _speak_multilang(headline)
 
@@ -52,7 +54,7 @@ def get_headlines(country="in", count=5):
         _speak_multilang(
             "Could not fetch news right now.",
             hi="अभी समाचार नहीं मिल सका।",
-            fr="Impossible de récupérer les nouvelles pour le moment.",
-            es="No se pudieron obtener noticias.",
-            de="Nachrichten konnten nicht abgerufen werden."
+            fr="Je n’ai pas pu récupérer les nouvelles pour le moment.",
+            es="No he podido obtener las noticias en este momento.",
+            de="Ich konnte die Nachrichten im Moment nicht abrufen."
         )

@@ -1,0 +1,913 @@
+{
+  "motion": {
+    "velocity": {
+      "expr": "v = u + a*t",
+      "explain": {
+        "understanding": "Find the final velocity after a time t when the object has constant acceleration a starting at speed u.",
+        "why": "Under uniform acceleration, velocity changes linearly with time, so v = u + a·t.",
+        "tip": "Each extra second adds a×1 s to the speed; that’s why v grows linearly with t.",
+        "plot_first": "📊 Want to see how velocity evolves over time?"
+      }
+    },
+    "deceleration": {
+      "expr": "v = u - a*t",
+      "explain": {
+        "understanding": "Find the final velocity when the object slows down at a constant rate a for time t.",
+        "why": "Negative (opposing) acceleration reduces speed: v = u − a·t.",
+        "tip": "If the computed v becomes negative, it means the object has reversed direction.",
+        "plot_first": "📊 Want to see how velocity drops with time?"
+      }
+    },
+    "displacement": {
+      "expr": "s = u*t + 0.5*a*t**2",
+      "explain": {
+        "understanding": "Total distance (with sign) covered during time t under constant acceleration a, starting speed u.",
+        "why": "Sum of distance from initial speed (u·t) and the extra from acceleration (½·a·t²).",
+        "tip": "If u = 0, the first term vanishes; otherwise include it.",
+        "plot_first": "📊 Want to see how displacement changes with time?"
+      }
+    },
+    "final velocity (time independent)": {
+      "expr": "v**2 = u**2 + 2*a*s",
+      "explain": {
+        "understanding": "Relate speeds and displacement without using time explicitly.",
+        "why": "Combining kinematic relations (or energy arguments) yields v² = u² + 2·a·s.",
+        "tip": "If acceleration opposes motion, take a negative a so v can reduce relative to u.",
+        "plot_first": "📊 Want to see how final speed depends on displacement?"
+      }
+    },
+    "average speed": {
+      "expr": "v = d / t",
+      "explain": {
+        "understanding": "Compute average speed as total distance over total time.",
+        "why": "Definition of average speed: v̄ = d/t.",
+        "tip": "Average speed is not the same as average of speeds; always use total distance and total time.",
+        "plot_first": "📊 Want to compare average vs instantaneous speed?"
+      }
+    },
+    "acceleration": {
+      "expr": "a = (v - u) / t",
+      "explain": {
+        "understanding": "Find constant acceleration from the change in velocity over time.",
+        "why": "By definition of uniform acceleration: a = Δv/Δt.",
+        "tip": "If v < u, a becomes negative, indicating deceleration along the chosen positive direction.",
+        "plot_first": "📊 Want to visualize acceleration from a v–t graph?"
+      }
+    },
+    "relative velocity": {
+      "expr": "v_rel = v1 - v2",
+      "explain": {
+        "understanding": "Velocity of one object as seen from another moving object.",
+        "why": "Relative motion subtracts velocities along the same line: v_rel = v1 − v2.",
+        "tip": "Mind directions: choose a positive direction first; opposite direction adds magnitudes with a sign.",
+        "plot_first": "📊 Want to see relative velocity vs time?"
+      }
+    },
+    "uniform motion": {
+      "expr": "s = v*t",
+      "explain": {
+        "understanding": "Displacement when speed is constant.",
+        "why": "Without acceleration, distance grows linearly with time: s = v·t.",
+        "tip": "If the motion is back and forth, net displacement may be smaller than total path length.",
+        "plot_first": "📊 Want to see linear growth of s with t?"
+      }
+    }
+  },
+  "projectile motion": {
+    "range": {
+      "expr": "R = (u**2 * sin(2*theta)) / g",
+      "explain": {
+        "understanding": "Horizontal distance traveled before landing (level launch/landing, no air drag).",
+        "why": "Resolve motion into x and y, eliminate time to get R = u²·sin(2θ)/g.",
+        "tip": "For fixed speed, range is maximized at 45°. Doubling speed quadruples the range (u² dependence).",
+        "plot_first": "📊 Want a quick trajectory sketch?"
+      }
+    },
+    "max height": {
+      "expr": "H = (u**2 * sin(theta)**2) / (2*g)",
+      "explain": {
+        "understanding": "Peak vertical height of the projectile’s path.",
+        "why": "Use vertical motion with final vertical speed zero at the top to get H = u²·sin²θ/(2g).",
+        "tip": "Only the vertical component u·sinθ changes the height; horizontal speed doesn’t affect H.",
+        "plot_first": "📊 Want to see height vs time?"
+      }
+    },
+    "time of flight": {
+      "expr": "T = (2*u*sin(theta)) / g",
+      "explain": {
+        "understanding": "Total time the projectile stays in the air (level launch/landing).",
+        "why": "Vertical displacement returns to zero when y(t) finishes a symmetric up-down journey.",
+        "tip": "Higher launch angles increase time aloft but shorten range for fixed speed (no air drag).",
+        "plot_first": "📊 Want to see trajectory time markers?"
+      }
+    }
+  },
+  "work energy power": {
+    "work": {
+      "expr": "W = F*d*cos(theta)",
+      "explain": {
+        "understanding": "Energy transferred by a constant force along a displacement at angle θ.",
+        "why": "Work equals the component of force along displacement times distance: W = F·d·cosθ.",
+        "tip": "If the force is perpendicular (θ = 90°), no work is done despite motion.",
+        "plot_first": "📊 Want to see how W varies with angle?"
+      }
+    },
+    "kinetic energy": {
+      "expr": "KE = 0.5*m*v**2",
+      "explain": {
+        "understanding": "Energy due to motion of a mass m moving at speed v.",
+        "why": "Work needed to accelerate from rest leads to KE = ½·m·v².",
+        "tip": "Doubling the speed quadruples KE (square dependence).",
+        "plot_first": "📊 Want to compare KE at different speeds?"
+      }
+    },
+    "potential energy": {
+      "expr": "PE = m*g*h",
+      "explain": {
+        "understanding": "Gravitational potential energy near Earth relative to a reference height.",
+        "why": "Work done against weight m·g across height h is stored as PE = mgh.",
+        "tip": "Only height difference matters; choose a convenient zero for PE.",
+        "plot_first": "📊 Want to see PE vs height?"
+      }
+    },
+    "power": {
+      "expr": "P = W / t",
+      "explain": {
+        "understanding": "Average rate of doing work or transferring energy.",
+        "why": "Power is energy per unit time: P = W/t.",
+        "tip": "Instantaneous power uses calculus (dW/dt); for constant W over t, average is accurate.",
+        "plot_first": "📊 Want to see power vs time?"
+      }
+    },
+    "mechanical energy": {
+      "expr": "E = KE + PE",
+      "explain": {
+        "understanding": "Total mechanical energy as the sum of kinetic and potential energy.",
+        "why": "For conservative forces, mechanical energy is conserved (neglecting losses).",
+        "tip": "If non-conservative forces act (friction), mechanical energy is not constant—track the work done by them.",
+        "plot_first": "📊 Want to see energy exchange between KE and PE?"
+      }
+    },
+    "work-energy theorem": {
+      "expr": "W = dK",
+      "explain": {
+        "understanding": "Net work equals change in kinetic energy.",
+        "why": "Integrating F·ds along the path yields ΔK = W_net.",
+        "tip": "If W_net is positive, KE increases; if negative, the object slows down.",
+        "plot_first": "📊 Want to see KE change vs distance?"
+      }
+    }
+  },
+  "newton's laws": {
+    "force": {
+      "expr": "F = m*a",
+      "explain": {
+        "understanding": "Relate net force, mass and acceleration.",
+        "why": "Newton’s second law: net external force causes acceleration proportional to mass.",
+        "tip": "Always sum forces vectorially to get the net F before applying F = m·a.",
+        "plot_first": "📊 Want to see acceleration vs mass or force?"
+      }
+    },
+    "momentum": {
+      "expr": "p = m*v",
+      "explain": {
+        "understanding": "Linear momentum, the product of mass and velocity.",
+        "why": "Momentum is conserved for an isolated system (no external impulse).",
+        "tip": "Impulse (F·Δt) equals change in momentum: Δp = J.",
+        "plot_first": "📊 Want to visualize momentum change with time?"
+      }
+    },
+    "impulse": {
+      "expr": "J = F*dt",
+      "explain": {
+        "understanding": "Impulse delivered by a force over a contact time Δt.",
+        "why": "For constant F, J = F·Δt (area under F–t curve).",
+        "tip": "Soft landings increase Δt to reduce peak force for the same impulse.",
+        "plot_first": "📊 Want to compare impulses for different contact times?"
+      }
+    },
+    "newton's second law (general)": {
+      "expr": "F = dp/dt",
+      "explain": {
+        "understanding": "More general statement: force equals time rate of change of momentum.",
+        "why": "Reduces to F = m·a when mass is constant; handles variable-mass cases too.",
+        "tip": "Be careful with systems like rockets—mass flow makes dp/dt analysis essential.",
+        "plot_first": "📊 Want to see dp/dt under varying mass?"
+      }
+    },
+    "friction": {
+      "expr": "f = mu*N",
+      "explain": {
+        "understanding": "Frictional force resisting motion on a surface.",
+        "why": "Kinetic friction is approximately f_k = μ_k N; static friction satisfies f_s ≤ μ_s N.",
+        "tip": "Static friction self-adjusts up to a maximum; kinetic is roughly constant.",
+        "plot_first": "📊 Want to see friction vs normal force?"
+      }
+    }
+  },
+  "circular motion": {
+    "centripetal acceleration": {
+      "expr": "a = v**2 / r",
+      "explain": {
+        "understanding": "In uniform circular motion, inward acceleration keeps the path curved.",
+        "why": "From geometry of circular motion a_c = v²/r.",
+        "tip": "Doubling v makes a four times larger; halving r doubles a.",
+        "plot_first": "📊 Want to see how a varies with v and r?"
+      }
+    },
+    "angular velocity": {
+      "expr": "omega = theta / t",
+      "explain": {
+        "understanding": "Average angular speed for an angular displacement over time t.",
+        "why": "By definition, ω = θ/t.",
+        "tip": "For instantaneous ω(t), take derivative: ω = dθ/dt.",
+        "plot_first": "📊 Want to see θ and ω over time?"
+      }
+    },
+    "centripetal force": {
+      "expr": "F = m*v**2 / r",
+      "explain": {
+        "understanding": "Inward force required to keep an object in a circular path.",
+        "why": "F = m·a_c with a_c = v²/r.",
+        "tip": "If friction supplies F on a curve, higher speed or smaller radius increases risk of skidding.",
+        "plot_first": "📊 Want to see required force vs speed?"
+      }
+    },
+    "angular momentum (point mass)": {
+      "expr": "L = I*omega",
+      "explain": {
+        "understanding": "Rotational analog of linear momentum.",
+        "why": "For rigid bodies, L = I·ω about the rotation axis.",
+        "tip": "With no external torque, angular momentum is conserved.",
+        "plot_first": "📊 Want to see L vs ω for different I?"
+      }
+    },
+    "tangential velocity": {
+      "expr": "v = omega*r",
+      "explain": {
+        "understanding": "Linear speed at radius r in rotational motion.",
+        "why": "Points on a rigid body have v = ω·r (perpendicular to radius).",
+        "tip": "Outer points move faster than points near the axis for the same ω.",
+        "plot_first": "📊 Want to see v vs r at fixed ω?"
+      }
+    }
+  },
+  "rotation": {
+    "moment of inertia (discrete)": {
+      "expr": "I = sum(m_i*r_i**2)",
+      "explain": {
+        "understanding": "Rotational inertia about an axis for point masses m_i at distances r_i.",
+        "why": "Definition for discrete masses: I = Σ m_i r_i².",
+        "tip": "Mass farther from the axis contributes more strongly to I.",
+        "plot_first": "📊 Want to compare I for different mass distributions?"
+      }
+    },
+    "torque": {
+      "expr": "tau = I*alpha",
+      "explain": {
+        "understanding": "Rotational analog of F = m·a linking torque, inertia and angular acceleration.",
+        "why": "For rigid rotation about a fixed axis, τ = I·α.",
+        "tip": "If external torque is zero, angular momentum stays constant; α becomes zero.",
+        "plot_first": "📊 Want to see α vs τ for different I?"
+      }
+    },
+    "angular momentum": {
+      "expr": "L = I*omega",
+      "explain": {
+        "understanding": "Angular momentum for a rigid body about its axis.",
+        "why": "L = I·ω captures rotational motion amount.",
+        "tip": "Figure skaters reduce I (arms in) to spin faster (ω increases) conserving L.",
+        "plot_first": "📊 Want to see L conservation examples?"
+      }
+    },
+    "rotational kinetic energy": {
+      "expr": "KE = 0.5*I*omega**2",
+      "explain": {
+        "understanding": "Energy stored in rotation.",
+        "why": "Work to spin up a body to ω leads to KE_rot = ½ I ω².",
+        "tip": "For rolling objects, total KE = translational + rotational.",
+        "plot_first": "📊 Want to compare rotational and translational KE?"
+      }
+    }
+  },
+  "gravitation": {
+    "gravitational force": {
+      "expr": "F = G*m1*m2 / r**2",
+      "explain": {
+        "understanding": "Attractive force between two point masses.",
+        "why": "Newton’s law of universal gravitation has inverse-square dependence on distance.",
+        "tip": "Force acts along the line joining the masses.",
+        "plot_first": "📊 Want to see how F changes with r?"
+      }
+    },
+    "potential energy": {
+      "expr": "U = -G*m1*m2 / r",
+      "explain": {
+        "understanding": "Gravitational potential energy for two masses separated by r.",
+        "why": "Work against attraction from infinity to r gives U = −GMm/r.",
+        "tip": "Negative sign indicates bound state (energy below zero).",
+        "plot_first": "📊 Want to see U versus r?"
+      }
+    },
+    "acceleration due to gravity": {
+      "expr": "g = G*M / R**2",
+      "explain": {
+        "understanding": "Surface gravitational acceleration of a spherical body.",
+        "why": "Equate gravitational force to m·g to get g = GM/R².",
+        "tip": "g decreases with altitude as R increases.",
+        "plot_first": "📊 Want to see how g changes with R?"
+      }
+    },
+    "orbital velocity": {
+      "expr": "v = sqrt(G*M / r)",
+      "explain": {
+        "understanding": "Speed for a circular orbit of radius r around mass M.",
+        "why": "Centripetal force m v²/r equals gravitational GMm/r² → v = √(GM/r).",
+        "tip": "Lower orbits require higher orbital speeds.",
+        "plot_first": "📊 Want to see v vs orbital radius?"
+      }
+    },
+    "escape velocity": {
+      "expr": "v_e = sqrt(2*G*M / R)",
+      "explain": {
+        "understanding": "Minimum speed to escape gravitational pull from surface radius R (neglect drag).",
+        "why": "Set KE equal to gravitational binding energy to solve v_e = √(2GM/R).",
+        "tip": "Independent of the object's own mass.",
+        "plot_first": "📊 Want to see how v_e drops with altitude?"
+      }
+    }
+  },
+  "fluid mechanics": {
+    "pressure": {
+      "expr": "P = F / A",
+      "explain": {
+        "understanding": "Force per unit area applied on a surface.",
+        "why": "Definition of pressure: P = F/A.",
+        "tip": "Smaller area under the same force gives higher pressure.",
+        "plot_first": "📊 Want to see how P changes with A?"
+      }
+    },
+    "buoyant force": {
+      "expr": "Fb = rho*g*V",
+      "explain": {
+        "understanding": "Upthrust on an immersed body equals the weight of displaced fluid.",
+        "why": "Archimedes’ principle gives F_b = ρ g V.",
+        "tip": "If F_b exceeds weight, the body floats; if less, it sinks.",
+        "plot_first": "📊 Want to see buoyancy vs volume?"
+      }
+    },
+    "continuity equation": {
+      "expr": "A1*v1 = A2*v2",
+      "explain": {
+        "understanding": "Conservation of mass flow in incompressible steady flow.",
+        "why": "ρA v is constant; for constant density, A1 v1 = A2 v2.",
+        "tip": "Narrower pipe sections increase speed to keep flow rate constant.",
+        "plot_first": "📊 Want to see speed change along varying area?"
+      }
+    },
+    "bernoulli's theorem": {
+      "expr": "P + 0.5*rho*v**2 + rho*g*h = K",
+      "explain": {
+        "understanding": "Energy conservation along a streamline for incompressible, non-viscous steady flow.",
+        "why": "Pressure energy + kinetic + potential remains constant: P + ½ρv² + ρgh = const.",
+        "tip": "Where speed increases, static pressure drops (Venturi effect).",
+        "plot_first": "📊 Want to see pressure vs speed trade-off?"
+      }
+    },
+    "viscous force": {
+      "expr": "F = eta*A*(dv_dx)",
+      "explain": {
+        "understanding": "Force due to viscosity in laminar shear flow across area A.",
+        "why": "Newton’s law of viscosity: shear stress ∝ velocity gradient.",
+        "tip": "Higher viscosity or gradient increases resistive force.",
+        "plot_first": "📊 Want to see F vs gradient?"
+      }
+    }
+  },
+  "oscillations": {
+    "pendulum": {
+      "expr": "T = 2*pi*sqrt(l / g)",
+      "explain": {
+        "understanding": "Period of a simple pendulum for small oscillations.",
+        "why": "Linearized pendulum equation gives T = 2π√(l/g).",
+        "tip": "Period depends on length and g, not mass or amplitude (for small angles).",
+        "plot_first": "📊 Want to see pendulum displacement vs time?"
+      }
+    },
+    "spring": {
+      "expr": "T = 2*pi*sqrt(m / k)",
+      "explain": {
+        "understanding": "Period of a mass–spring oscillator.",
+        "why": "SHM solution gives T = 2π√(m/k).",
+        "tip": "Heavier mass → longer period; stiffer spring → shorter period.",
+        "plot_first": "📊 Want to see oscillation over time?"
+      }
+    },
+    "angular frequency": {
+      "expr": "omega = 2*pi*f",
+      "explain": {
+        "understanding": "Angular frequency from ordinary frequency.",
+        "why": "One cycle per second corresponds to 2π radians per second: ω = 2πf.",
+        "tip": "In SHM, ω = √(k/m) for springs and ω = √(g/l) for pendulums (small angles).",
+        "plot_first": "📊 Want to move between f and ω?"
+      }
+    },
+    "displacement in SHM": {
+      "expr": "x = A*sin(omega*t + phi)",
+      "explain": {
+        "understanding": "Position vs time for simple harmonic motion.",
+        "why": "Solution to x¨ + ω²x = 0 is sinusoidal with amplitude A and phase φ.",
+        "tip": "Use cosine form if initial phase is different; both are equivalent up to a phase shift.",
+        "plot_first": "📊 Want to see the sinusoid over time?"
+      }
+    },
+    "energy in SHM": {
+      "expr": "E = 0.5*k*A**2",
+      "explain": {
+        "understanding": "Total mechanical energy in a mass–spring oscillator.",
+        "why": "At extremes x = ±A, all energy is potential: ½kA² (equals total energy at all times).",
+        "tip": "Energy shuttles between KE and PE but their sum stays constant (ideal SHM).",
+        "plot_first": "📊 Want to see KE and PE exchange over time?"
+      }
+    }
+  },
+  "waves and optics": {
+    "wave speed": {
+      "expr": "v = f*lambda",
+      "explain": {
+        "understanding": "Relate wave speed, frequency, and wavelength.",
+        "why": "Basic wave relation v = f·λ (for light in vacuum, c = f·λ).",
+        "tip": "For fixed speed, higher frequency means shorter wavelength.",
+        "plot_first": "📊 Want to see wavelength vs frequency?"
+      }
+    },
+    "lens formula": {
+      "expr": "1/f = 1/v - 1/u",
+      "explain": {
+        "understanding": "Relate object and image distances for a thin lens (sign conventions apply).",
+        "why": "Gaussian lens equation connects focal length with object/image distances.",
+        "tip": "Be consistent with sign convention (real is positive in one common convention).",
+        "plot_first": "📊 Want to see image distance vs object distance?"
+      }
+    },
+    "magnification": {
+      "expr": "M = v / u",
+      "explain": {
+        "understanding": "Linear magnification as the ratio of image size to object size.",
+        "why": "For thin lenses/mirrors, M = v/u (with sign conventions).",
+        "tip": "Negative M implies inverted image.",
+        "plot_first": "📊 Want to see magnification vs object distance?"
+      }
+    },
+    "refractive index": {
+      "expr": "n = c / v",
+      "explain": {
+        "understanding": "How much slower light travels in a medium compared to vacuum.",
+        "why": "Definition: n = c/v.",
+        "tip": "Higher n means light slows more and bends toward the normal entering the medium.",
+        "plot_first": "📊 Want to see n across media?"
+      }
+    },
+    "mirror equation": {
+      "expr": "1/f = 1/v + 1/u",
+      "explain": {
+        "understanding": "Object–image relationship for spherical mirrors (sign conventions apply).",
+        "why": "Geometry of reflection on a spherical surface gives the mirror formula.",
+        "tip": "Consistent sign convention avoids errors (e.g., real is positive for some texts).",
+        "plot_first": "📊 Want to see image distance vs object distance?"
+      }
+    },
+    "young's double slit (fringe width)": {
+      "expr": "beta = (lambda*D)/d",
+      "explain": {
+        "understanding": "Spacing between adjacent bright fringes.",
+        "why": "Interference geometry yields β = λD/d for small angles.",
+        "tip": "Increasing wavelength or screen distance increases fringe spacing; larger slit separation reduces it.",
+        "plot_first": "📊 Want to see fringe spacing vs wavelength?"
+      }
+    },
+    "snell's law": {
+      "expr": "n1*sin(theta1) = n2*sin(theta2)",
+      "explain": {
+        "understanding": "Relate angles of incidence and refraction between two media.",
+        "why": "Snell’s law governs how waves bend crossing an interface.",
+        "tip": "From air to a denser medium (higher n), the ray bends toward the normal.",
+        "plot_first": "📊 Want to compare bending for different indices?"
+      }
+    }
+  },
+  "thermodynamics": {
+    "heat": {
+      "expr": "Q = m*c*dT",
+      "explain": {
+        "understanding": "Heat absorbed or released when a substance changes temperature by dT.",
+        "why": "By definition of specific heat capacity: Q = m c ΔT.",
+        "tip": "During phase change, temperature can stay constant while heat flows (latent heat).",
+        "plot_first": "📊 Want to see temperature change vs heat added?"
+      }
+    },
+    "ideal gas law": {
+      "expr": "P*V = n*R*T",
+      "explain": {
+        "understanding": "Equation of state for an ideal gas relating pressure, volume, and temperature.",
+        "why": "Empirical gas laws combine into PV = nRT.",
+        "tip": "For fixed n and T, PV is constant; compressing volume raises pressure.",
+        "plot_first": "📊 Want to see PV curves at different temperatures?"
+      }
+    },
+    "internal energy (monoatomic ideal gas)": {
+      "expr": "U = 1.5*n*R*T",
+      "explain": {
+        "understanding": "Internal energy as a function of temperature for a monoatomic ideal gas.",
+        "why": "Equipartition (3 translational dof) gives U = (3/2) nRT.",
+        "tip": "For diatomic gases, U is larger at room temperature due to rotational modes.",
+        "plot_first": "📊 Want to see U vs T?"
+      }
+    },
+    "first law": {
+      "expr": "dU = Q - W",
+      "explain": {
+        "understanding": "Energy conservation for thermodynamic systems.",
+        "why": "Change in internal energy equals heat added minus work done by the system.",
+        "tip": "Sign conventions matter: positive W usually means work done by the system.",
+        "plot_first": "📊 Want to follow energy flows in a cycle?"
+      }
+    },
+    "efficiency": {
+      "expr": "eta = W / Q1",
+      "explain": {
+        "understanding": "Thermal efficiency of a heat engine.",
+        "why": "Defined as useful work output divided by heat input from the hot reservoir.",
+        "tip": "Carnot efficiency sets an upper bound depending only on temperatures.",
+        "plot_first": "📊 Want to compare efficiencies vs temperature limits?"
+      }
+    }
+  },
+  "modern physics": {
+    "energy of photon": {
+      "expr": "E = h*f",
+      "explain": {
+        "understanding": "Energy carried by a photon of frequency f.",
+        "why": "Planck’s relation E = h f.",
+        "tip": "Higher frequency (shorter wavelength) photons carry more energy.",
+        "plot_first": "📊 Want to see energy vs frequency?"
+      }
+    },
+    "de broglie wavelength": {
+      "expr": "lambda = h / p",
+      "explain": {
+        "understanding": "Matter-wave wavelength of a particle with momentum p.",
+        "why": "Wave–particle duality gives λ = h/p.",
+        "tip": "Faster/heavier particles have smaller wavelengths.",
+        "plot_first": "📊 Want to see λ vs momentum?"
+      }
+    },
+    "mass-energy": {
+      "expr": "E = m*c**2",
+      "explain": {
+        "understanding": "Rest energy equivalent of mass m.",
+        "why": "Einstein’s mass–energy equivalence.",
+        "tip": "Small mass can correspond to enormous energy due to c² factor.",
+        "plot_first": "📊 Want to see energy equivalents for different masses?"
+      }
+    },
+    "radioactive decay": {
+      "expr": "N = N0*exp(-lambda*t)",
+      "explain": {
+        "understanding": "Number of undecayed nuclei after time t for a constant decay rate λ.",
+        "why": "Solving dN/dt = −λN yields exponential decay.",
+        "tip": "Half-life T½ = ln2/λ.",
+        "plot_first": "📊 Want to see decay curves for different λ?"
+      }
+    },
+    "stopping potential (photoelectric)": {
+      "expr": "e*V = h*f - phi",
+      "explain": {
+        "understanding": "Stopping potential needed to halt photoelectrons.",
+        "why": "Einstein’s photoelectric equation: hf = φ + eV.",
+        "tip": "No emission occurs if hf < φ (below threshold frequency).",
+        "plot_first": "📊 Want to see V vs frequency?"
+      }
+    },
+    "binding energy": {
+      "expr": "E = dm*c**2",
+      "explain": {
+        "understanding": "Energy equivalent of mass defect in nuclei.",
+        "why": "Binding energy equals Δm c² from mass difference of separated nucleons vs nucleus.",
+        "tip": "Binding energy per nucleon indicates nuclear stability.",
+        "plot_first": "📊 Want to compare binding energy per nucleon across nuclei?"
+      }
+    },
+    "uncertainty principle": {
+      "expr": "Dx*Dp = hbar/2",
+      "explain": {
+        "understanding": "Lower bound on simultaneous spread of position and momentum measurements.",
+        "why": "Heisenberg’s principle sets Δx·Δp ≥ ħ/2; we show the equality form for calculation.",
+        "tip": "Reducing uncertainty in one observable increases it in the conjugate partner.",
+        "plot_first": "📊 Want to see Δp vs Δx trade-off?"
+      }
+    },
+    "bohr radius (ground state)": {
+      "expr": "r = (n**2 * h**2) / (4*pi**2*m*e**2)",
+      "explain": {
+        "understanding": "Radius of nth Bohr orbit (non-relativistic hydrogen-like model).",
+        "why": "Quantized angular momentum and Coulomb attraction yield r_n ∝ n².",
+        "tip": "Ground state has n=1; real atoms require quantum mechanics beyond Bohr model for exact values.",
+        "plot_first": "📊 Want to see r vs n?"
+      }
+    }
+  },
+  "electricity": {
+    "ohm's law": {
+      "expr": "V = I*R",
+      "explain": {
+        "understanding": "Relate voltage, current and resistance.",
+        "why": "Ohm’s law links them directly: V = I·R.",
+        "tip": "In series, resistances add; in parallel, conductances add.",
+        "plot_first": "📊 Want to see V vs I for a given R?"
+      }
+    },
+    "power": {
+      "expr": "P = V*I",
+      "explain": {
+        "understanding": "Electrical power delivered in a circuit.",
+        "why": "P = V·I; using Ohm’s law, also P = I**2*R or V**2/R.",
+        "tip": "For AC, use RMS values to compute average power.",
+        "plot_first": "📊 Want to see power vs current or voltage?"
+      }
+    },
+    "resistance in series": {
+      "expr": "R = R1 + R2 + R3",
+      "explain": {
+        "understanding": "Equivalent resistance of series-connected resistors.",
+        "why": "Same current passes through each; voltage drops add so resistances add.",
+        "tip": "Generalize: sum all resistances in the series path.",
+        "plot_first": "📊 Want to see R_eq as you add more resistors?"
+      }
+    },
+    "resistance in parallel": {
+      "expr": "1/R = 1/R1 + 1/R2 + 1/R3",
+      "explain": {
+        "understanding": "Equivalent resistance for parallel branches.",
+        "why": "Conductances add: 1/R_eq = Σ(1/R_i).",
+        "tip": "Two-branch shortcut: R_eq = (R1*R2)/(R1+R2).",
+        "plot_first": "📊 Want to see R_eq drop as branches increase?"
+      }
+    },
+    "joule heating": {
+      "expr": "H = I**2 * R * t",
+      "explain": {
+        "understanding": "Heat generated by current in a resistor over time t.",
+        "why": "Electrical power I²R integrated over time yields heat H.",
+        "tip": "Higher resistance or current increases heating rapidly (∝ I²).",
+        "plot_first": "📊 Want to see heating vs current?"
+      }
+    },
+    "coulomb's law": {
+      "expr": "F = k * q1 * q2 / r**2",
+      "explain": {
+        "understanding": "Electrostatic force magnitude between two charges.",
+        "why": "Inverse-square force proportional to product of charges.",
+        "tip": "Attractive for opposite charges, repulsive for like charges.",
+        "plot_first": "📊 Want to see F vs r?"
+      }
+    }
+  },
+  "capacitance": {
+    "capacitance": {
+      "expr": "C = Q / V",
+      "explain": {
+        "understanding": "Ability to store charge per unit voltage.",
+        "why": "Definition: C = Q/V for a capacitor.",
+        "tip": "Adding dielectric increases C; geometry (area and separation) matters.",
+        "plot_first": "📊 Want to see Q–V relation for a capacitor?"
+      }
+    },
+    "energy stored": {
+      "expr": "U = 0.5*C*V**2",
+      "explain": {
+        "understanding": "Energy stored in a charged capacitor.",
+        "why": "Integrate V dq from 0 to Q; with Q = CV yields U = ½CV².",
+        "tip": "Also U = Q²/(2C) = ½QV depending on knowns.",
+        "plot_first": "📊 Want to see stored energy vs voltage?"
+      }
+    },
+    "parallel": {
+      "expr": "C = C1 + C2 + C3",
+      "explain": {
+        "understanding": "Equivalent capacitance for parallel capacitors.",
+        "why": "Plates effectively increase area so capacitances add.",
+        "tip": "Add more branches to increase total C.",
+        "plot_first": "📊 Want to see C_eq as branches increase?"
+      }
+    },
+    "series": {
+      "expr": "1/C = 1/C1 + 1/C2 + 1/C3",
+      "explain": {
+        "understanding": "Equivalent capacitance for capacitors in series.",
+        "why": "Inverse adds like resistors in parallel: 1/C_eq = Σ(1/C_i).",
+        "tip": "Two-capacitor shortcut: C_eq = (C1*C2)/(C1+C2).",
+        "plot_first": "📊 Want to see C_eq vs values?"
+      }
+    }
+  },
+  "magnetism": {
+    "force on charge (magnitude)": {
+      "expr": "F = q*v*B*sin(theta)",
+      "explain": {
+        "understanding": "Magnetic force on a charge q moving at speed v in field B at angle θ.",
+        "why": "Magnitude of Lorentz magnetic term |q v × B| = q v B sinθ.",
+        "tip": "Force is max when motion is perpendicular to B; zero when parallel.",
+        "plot_first": "📊 Want to see F vs angle?"
+      }
+    },
+    "lorentz force (components)": {
+      "expr": "F = q*E + q*v*B*sin(theta)",
+      "explain": {
+        "understanding": "Combined electric and magnetic forces on a moving charge.",
+        "why": "Lorentz force: F = qE + q v × B; magnitude part shown for calculation.",
+        "tip": "Direction follows right-hand rule for v × B and along E for electric part.",
+        "plot_first": "📊 Want to compare electric vs magnetic contributions?"
+      }
+    },
+    "magnetic field (wire)": {
+      "expr": "B = mu0*I / (2*pi*r)",
+      "explain": {
+        "understanding": "Field magnitude at distance r from a long straight current-carrying wire.",
+        "why": "Ampère’s law/Biot–Savart gives B = μ0 I / (2π r).",
+        "tip": "Field strength decreases with distance; direction wraps around the wire (right-hand rule).",
+        "plot_first": "📊 Want to see B vs r?"
+      }
+    },
+    "torque on loop": {
+      "expr": "tau = n*B*I*A*sin(theta)",
+      "explain": {
+        "understanding": "Torque on a current loop of area A with n turns in a magnetic field.",
+        "why": "Magnetic dipole in a field experiences τ = n B I A sinθ.",
+        "tip": "Maximum torque when plane of loop is parallel to the field (θ = 90°).",
+        "plot_first": "📊 Want to see torque vs angle?"
+      }
+    }
+  },
+  "em induction": {
+    "faraday's law (magnitude)": {
+      "expr": "emf = -dPhi_dt",
+      "explain": {
+        "understanding": "Induced EMF proportional to negative rate of change of magnetic flux (sign from Lenz’s law).",
+        "why": "Faraday–Lenz law: emf = − dΦ/dt.",
+        "tip": "Minus sign indicates the induced current opposes the change causing it.",
+        "plot_first": "📊 Want to see emf vs dΦ/dt?"
+      }
+    },
+    "lenz's law": {
+      "expr": "emf = -dPhi_dt",
+      "explain": {
+        "understanding": "Direction of induced EMF/current always opposes the change in magnetic flux that produced it.",
+        "why": "Lenz’s law supplies the negative sign in Faraday’s law, enforcing energy conservation.",
+        "tip": "If flux is increasing, the induced current creates a field to reduce it; if decreasing, it tries to increase it.",
+        "plot_first": "📊 Want to see how the sign flips with dΦ/dt?"
+      }
+    },
+    "inductive reactance": {
+      "expr": "X_L = omega*L",
+      "explain": {
+        "understanding": "Opposition of an inductor to AC current, growing with frequency.",
+        "why": "For sinusoidal steady-state, X_L = ωL.",
+        "tip": "Higher frequency → larger reactance, so less current through the inductor.",
+        "plot_first": "📊 Want to see X_L vs frequency?"
+      }
+    },
+    "capacitive reactance": {
+      "expr": "X_C = 1 / (omega*C)",
+      "explain": {
+        "understanding": "Opposition of a capacitor to AC current, shrinking with frequency.",
+        "why": "For sinusoidal steady-state, X_C = 1/(ωC).",
+        "tip": "Higher frequency → smaller reactance, so more AC passes through the capacitor.",
+        "plot_first": "📊 Want to see X_C vs frequency?"
+      }
+    }
+  },
+  "ac circuits": {
+    "rms voltage": {
+      "expr": "V_rms = V0 / sqrt(2)",
+      "explain": {
+        "understanding": "Effective (DC-equivalent) voltage of a sinusoidal source.",
+        "why": "For sine waves, Vrms = V0/√2; same heating as DC Vrms across a resistor.",
+        "tip": "Applies to pure sinusoid; other waveforms have different RMS factors.",
+        "plot_first": "📊 Want to compare V(t) and Vrms?"
+      }
+    },
+    "rms current": {
+      "expr": "I_rms = I0 / sqrt(2)",
+      "explain": {
+        "understanding": "Effective current of a sinusoidal waveform.",
+        "why": "For sine waves, Irms = I0/√2.",
+        "tip": "For non-sinusoidal waveforms, compute RMS by integrating over a period.",
+        "plot_first": "📊 Want to compare I(t) and Irms?"
+      }
+    },
+    "power factor": {
+      "expr": "cos_phi = R / Z",
+      "explain": {
+        "understanding": "Cosine of the phase angle between voltage and current in AC circuits.",
+        "why": "For a series R–L–C, cosφ = R/Z where Z is magnitude of impedance.",
+        "tip": "Close to 1 means efficient power use; reactive loads lower power factor.",
+        "plot_first": "📊 Want to see power factor vs reactance?"
+      }
+    },
+    "impedance (series RLC)": {
+      "expr": "Z = sqrt(R**2 + (X_L - X_C)**2)",
+      "explain": {
+        "understanding": "Magnitude of total opposition to AC in a series RLC circuit.",
+        "why": "Vector addition of resistance and reactances gives |Z| = √(R² + (X_L − X_C)²).",
+        "tip": "At resonance (X_L = X_C), impedance is minimum and equals R.",
+        "plot_first": "📊 Want to see Z vs frequency?"
+      }
+    }
+  },
+  "electronics": {
+    "binary to decimal (definition)": {
+      "expr": "D = b_n*2**n + ... + b_0",
+      "explain": {
+        "understanding": "Value of an n-bit binary number as a weighted sum of powers of 2.",
+        "why": "Place-value system in base 2 expands into Σ b_i 2^i.",
+        "tip": "The rightmost bit is 2^0; each step left doubles the weight.",
+        "plot_first": "📊 Want to convert a few examples together?"
+      }
+    },
+    "diode equation (idealized)": {
+      "expr": "V = (n*k*T/q) * log(I/I0 + 1)",
+      "explain": {
+        "understanding": "I–V relation of a diode (simplified Shockley form).",
+        "why": "Semiconductor physics yields I = I0 (exp(qV/nkT) − 1); rearranged here for V(I).",
+        "tip": "Parameter n captures ideality; temperature shifts the curve noticeably.",
+        "plot_first": "📊 Want to see the I–V curve?"
+      }
+    },
+    "truth table AND (logic)": {
+      "expr": "Q = A * B",
+      "explain": {
+        "understanding": "Logical AND outputs 1 only if both inputs are 1.",
+        "why": "In algebraic form, AND behaves like multiplication for {0,1}.",
+        "tip": "For circuits, implement with a series path requiring both inputs to conduct.",
+        "plot_first": "📊 Want a quick truth-table view?"
+      }
+    },
+    "truth table OR (logic)": {
+      "expr": "Q = A + B",
+      "explain": {
+        "understanding": "Logical OR outputs 1 if at least one input is 1.",
+        "why": "In algebraic form, OR behaves like addition with saturation at 1.",
+        "tip": "Parallel paths implement OR in relay/diode logic.",
+        "plot_first": "📊 Want a quick truth-table view?"
+      }
+    },
+    "truth table NOT (logic)": {
+      "expr": "Q = 1 - A",
+      "explain": {
+        "understanding": "Logical NOT inverts the input.",
+        "why": "Complement operation maps 0↔1.",
+        "tip": "In CMOS, a single inverter uses a PMOS–NMOS pair.",
+        "plot_first": "📊 Want a quick truth-table view?"
+      }
+    }
+  },
+  "dimensional analysis": {
+    "force": {
+      "expr": "[M*L*T**-2]",
+      "explain": {
+        "understanding": "Dimensional formula for force in terms of mass, length, and time.",
+        "why": "From F = m·a with [m]=M and [a]=LT⁻² → [F]=MLT⁻².",
+        "tip": "Dimensional checks catch algebra/unit mistakes early.",
+        "plot_first": "📊 Want to sanity-check units in an equation?"
+      }
+    },
+    "energy": {
+      "expr": "[M*L**2*T**-2]",
+      "explain": {
+        "understanding": "Dimensional formula for energy/work.",
+        "why": "From W = F·s with [F]=MLT⁻² and [s]=L → [E]=ML²T⁻².",
+        "tip": "Different energies share the same dimensions—context differentiates them.",
+        "plot_first": "📊 Want to compare dimensions across quantities?"
+      }
+    },
+    "power": {
+      "expr": "[M*L**2*T**-3]",
+      "explain": {
+        "understanding": "Dimensional formula for power.",
+        "why": "From P = E/t with [E]=ML²T⁻² → [P]=ML²T⁻³.",
+        "tip": "If your derived units don’t match ML²T⁻³, re-check algebra.",
+        "plot_first": "📊 Want to check a result’s units quickly?"
+      }
+    },
+    "pressure": {
+      "expr": "[M*L**-1*T**-2]",
+      "explain": {
+        "understanding": "Dimensional formula for pressure.",
+        "why": "From P = F/A with [F]=MLT⁻² and [A]=L² → [P]=ML⁻¹T⁻².",
+        "tip": "Dimensions help deduce or validate formulas when you forget constants.",
+        "plot_first": "📊 Want to sanity-check pressure relations?"
+      }
+    }
+  }
+}

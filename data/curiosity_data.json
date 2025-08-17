@@ -1,0 +1,364 @@
+{
+"deep_life_insight": {
+    "1": {
+      "english": "We suffer more in imagination than in reality.",
+      "hindi": "हम हक़ीक़त से ज़्यादा अपनी कल्पना में पीड़ित होते हैं।",
+      "french": "Nous souffrons plus dans notre imagination que dans la réalité.",
+      "german": "Wir leiden mehr in unserer Vorstellung als in der Wirklichkeit.",
+      "spanish": "Sufrimos más en la imaginación que en la realidad."
+    },
+    "2": {
+      "english": "Change is the heartbeat of growth.",
+      "hindi": "बदलाव ही विकास की धड़कन होती है।",
+      "french": "Le changement est le battement de cœur de la croissance.",
+      "german": "Veränderung ist der Herzschlag des Wachstums.",
+      "spanish": "El cambio es el latido del crecimiento."
+    },
+    "3": {
+      "english": "Do something today your future self will thank you for.",
+      "hindi": "आज कुछ ऐसा करो जिसके लिए भविष्य के तुम तुम्हें धन्यवाद दें।",
+      "french": "Fais aujourd’hui quelque chose dont ton futur toi te remerciera.",
+      "german": "Tu heute etwas, wofür dir dein zukünftiges Ich danken wird.",
+      "spanish": "Haz hoy algo por lo que tu yo futuro te lo agradecerá."
+    },
+    "4": {
+      "english": "You will never control the wind, but you can adjust your sails.",
+      "hindi": "तुम हवा को नियंत्रित नहीं कर सकते, लेकिन अपनी नाव की पाल बदल सकते हो।",
+      "french": "Tu ne contrôles jamais le vent, mais tu peux ajuster tes voiles.",
+      "german": "Du wirst den Wind nie kontrollieren, aber du kannst deine Segel setzen.",
+      "spanish": "Nunca controlarás el viento, pero puedes ajustar tus velas."
+    },
+    "5": {
+      "english": "One day, you’ll realize you were blooming all along.",
+      "hindi": "एक दिन तुम्हें एहसास होगा कि तुम हमेशा से खिल रहे थे।",
+      "french": "Un jour, tu réaliseras que tu fleurissais depuis toujours.",
+      "german": "Eines Tages wirst du erkennen, dass du die ganze Zeit geblüht hast.",
+      "spanish": "Un día te darás cuenta de que siempre estuviste floreciendo."
+    },
+    "6": {
+      "english": "The universe buries strange jewels deep within us all and then stands back to see if we can find them.",
+      "hindi": "ब्रह्मांड हमारे भीतर अजीब रत्न छुपाता है और फिर देखता है कि क्या हम उन्हें ढूंढ पाते हैं।",
+      "french": "L’univers enfouit d’étranges joyaux au plus profond de nous et attend de voir si nous les trouvons.",
+      "german": "Das Universum vergräbt seltsame Juwelen tief in uns und wartet, ob wir sie finden.",
+      "spanish": "El universo esconde extrañas joyas en lo más profundo de nosotros y espera a ver si las encontramos."
+    },
+    "7": {
+      "english": "Sometimes you have to lose the shore to discover new oceans.",
+      "hindi": "कभी-कभी नए महासागर खोजने के लिए तट को छोड़ना पड़ता है।",
+      "french": "Parfois, il faut quitter le rivage pour découvrir de nouveaux océans.",
+      "german": "Manchmal muss man das Ufer verlieren, um neue Ozeane zu entdecken.",
+      "spanish": "A veces hay que perder la orilla para descubrir nuevos océanos."
+    },
+    "8": {
+      "english": "The stars you admire are made from the same dust as you.",
+      "hindi": "जिन तारों की तुम प्रशंसा करते हो, वे भी तुम्हारी ही तरह धूल से बने हैं।",
+      "french": "Les étoiles que tu admires sont faites de la même poussière que toi.",
+      "german": "Die Sterne, die du bewunderst, bestehen aus dem gleichen Staub wie du.",
+      "spanish": "Las estrellas que admiras están hechas del mismo polvo que tú."
+    },
+    "9": {
+      "english": "The stars are always there, even when you can’t see them.",
+      "hindi": "तारे हमेशा होते हैं, भले ही तुम उन्हें देख न पाओ।",
+      "french": "Les étoiles sont toujours là, même si tu ne peux pas les voir.",
+      "german": "Die Sterne sind immer da, auch wenn du sie nicht sehen kannst.",
+      "spanish": "Las estrellas siempre están ahí, incluso cuando no puedes verlas."
+    },
+    "10": {
+      "english": "A single kind act can echo for a lifetime.",
+      "hindi": "एक दयालु कार्य जीवनभर गूंज सकता है।",
+      "french": "Un seul acte de gentillesse peut résonner toute une vie.",
+      "german": "Eine einzige freundliche Tat kann ein Leben lang nachhallen.",
+      "spanish": "Un solo acto de bondad puede resonar durante toda la vida."
+    }
+  },
+  "fun_facts": {
+    "1": {
+      "en": "The Immortal Jellyfish… (pause) There’s a tiny creature called Turritopsis dohrnii that can revert to its baby form again… and again… (slower) essentially… cheating death. (pause) Nature’s closest thing to a real-life… reset button.",
+      "hi": "अमर जेलिफ़िश… (pause) एक छोटा सा जीव है जिसे टुरिटॉप्सिस दोहर्नी कहते हैं, जो बार-बार अपने शिशु के रूप में लौट सकता है… (slower) मानो… मौत को धोखा दे रहा हो। (pause) प्रकृति का असली… रीसेट बटन।",
+      "es": "La medusa inmortal… (pausa) Hay una pequeña criatura llamada Turritopsis dohrnii que puede volver a su forma de bebé… una y otra vez… (más lento) esencialmente… engañando a la muerte. (pausa) Lo más parecido de la naturaleza a un… botón de reinicio real.",
+      "fr": "La méduse immortelle… (pause) Il existe une petite créature appelée Turritopsis dohrnii qui peut revenir à sa forme de bébé… encore et encore… (plus lentement) en trompant… la mort. (pause) Le plus proche… d’un bouton de réinitialisation réel dans la nature.",
+      "de": "Die unsterbliche Qualle… (Pause) Es gibt ein winziges Lebewesen namens Turritopsis dohrnii, das immer wieder zu seiner Babyform zurückkehren kann… (langsamer) im Grunde… den Tod betrügend. (Pause) Das wohl realistischste… Zurücksetzen der Natur."
+    },
+    "2": {
+      "en": "Moon’s Mystery Goo… (pause) In 2019, China’s Yutu-2 rover stumbled upon a strange… jelly-like substance on the Moon. (whisper tone) Even today… scientists aren’t fully sure what it is… (pause) sparking theories from molten rock… to alien glass.",
+      "hi": "चाँद का रहस्यमयी पदार्थ… (pause) 2019 में, चीन के युतु-2 रोवर को चाँद पर एक अजीब… जेली जैसी चीज़ मिली। (whisper) आज तक… वैज्ञानिक पूरी तरह नहीं जानते कि यह क्या है… (pause) पिघले हुए पत्थर से लेकर… एलियन काँच तक की थ्योरीज़ चल रही हैं।",
+      "es": "La sustancia misteriosa de la Luna… (pausa) En 2019, el rover chino Yutu-2 encontró una extraña… sustancia gelatinosa en la Luna. (susurro) Incluso hoy… los científicos no están seguros de qué es… (pausa) surgiendo teorías desde roca fundida… hasta vidrio alienígena.",
+      "fr": "La substance mystérieuse de la Lune… (pause) En 2019, le rover chinois Yutu-2 est tombé sur une étrange… substance gélatineuse sur la Lune. (chuchotement) Même aujourd’hui… les scientifiques ne savent pas exactement ce que c’est… (pause) allant de la roche en fusion… au verre extraterrestre.",
+      "de": "Das geheimnisvolle Mond-Gel… (Pause) 2019 stieß der chinesische Rover Yutu-2 auf eine seltsame… gallertartige Substanz auf dem Mond. (Flüsterton) Selbst heute… sind sich Wissenschaftler nicht sicher, was es ist… (Pause) Theorien reichen von geschmolzenem Gestein… bis zu außerirdischem Glas."
+    },
+    "3": {
+      "en": "Roman Fast Food… (pause) Two thousand years ago, Ancient Rome had bustling street counters called Thermopolia. (warmer tone) They served hot meals in clay pots — the original grab-and-go… before takeout was even a word.",
+      "hi": "रोमन फास्ट फूड… (pause) दो हज़ार साल पहले, प्राचीन रोम में थर्मोपोलिया नाम के व्यस्त सड़क काउंटर होते थे। (warmer tone) वे मिट्टी के बर्तनों में गरम भोजन परोसते थे — असली ग्रैब-एंड-गो… जब टेकआउट शब्द भी नहीं था।",
+      "es": "Comida rápida romana… (pausa) Hace dos mil años, la antigua Roma tenía concurridos mostradores callejeros llamados Thermopolia. (tono cálido) Servían comidas calientes en ollas de barro, el original ‘para llevar’… antes de que la palabra existiera.",
+      "fr": "Fast-food romain… (pause) Il y a deux mille ans, la Rome antique avait des comptoirs de rue animés appelés Thermopolia. (ton chaleureux) Ils servaient des plats chauds dans des pots en argile — le ‘à emporter’ original… avant même que le mot n’existe.",
+      "de": "Römisches Fast Food… (Pause) Vor zweitausend Jahren gab es im antiken Rom belebte Straßenstände namens Thermopolia. (wärmerer Ton) Dort wurden heiße Mahlzeiten in Tontöpfen serviert — das ursprüngliche ‘To-Go’… bevor es das Wort überhaupt gab."
+    },
+    "4": {
+      "en": "Diamond Rain… (pause) On Jupiter and Saturn… storms turn methane into carbon… (slightly faster) which crystallizes into diamonds… that fall from the sky. (pause) Yes… somewhere out there… it’s literally raining gemstones.",
+      "hi": "हीरे की बारिश… (pause) बृहस्पति और शनि पर… तूफ़ान मीथेन को कार्बन में बदल देते हैं… (slightly faster) जो क्रिस्टल बनकर हीरे बन जाते हैं… और आसमान से गिरते हैं। (pause) हाँ… कहीं न कहीं… सचमुच रत्नों की बारिश हो रही है।",
+      "es": "Lluvia de diamantes… (pausa) En Júpiter y Saturno… las tormentas convierten el metano en carbono… (un poco más rápido) que se cristaliza en diamantes… que caen del cielo. (pausa) Sí… en algún lugar… literalmente llueven gemas.",
+      "fr": "Pluie de diamants… (pause) Sur Jupiter et Saturne… les tempêtes transforment le méthane en carbone… (un peu plus vite) qui se cristallise en diamants… tombant du ciel. (pause) Oui… quelque part… il pleut littéralement des pierres précieuses.",
+      "de": "Diamantenregen… (Pause) Auf Jupiter und Saturn… verwandeln Stürme Methan in Kohlenstoff… (etwas schneller) der zu Diamanten kristallisiert… die vom Himmel fallen. (Pause) Ja… irgendwo da draußen… regnet es buchstäblich Edelsteine."
+    },
+    "5": {
+      "en": "The Earth’s Secret Song… (pause) Our planet hums… with a constant, inaudible vibration… (slower) scientists call it… the Earth’s hum. (pause) A soundtrack playing… since long before we were here… and long after we’re gone.",
+      "hi": "पृथ्वी का गुप्त गीत… (pause) हमारा ग्रह… एक लगातार, सुनाई न देने वाली कंपन के साथ गुनगुनाता है… (slower) वैज्ञानिक इसे कहते हैं… ‘पृथ्वी की हम’। (pause) एक साउंडट्रैक… जो हमारे आने से बहुत पहले से बज रहा है… और हमारे जाने के बाद भी बजता रहेगा।",
+      "es": "La canción secreta de la Tierra… (pausa) Nuestro planeta emite… una vibración constante e inaudible… (más lento) los científicos la llaman… el ‘zumbido de la Tierra’. (pausa) Una banda sonora que suena… mucho antes de que estuviéramos aquí… y mucho después de que nos vayamos.",
+      "fr": "La chanson secrète de la Terre… (pause) Notre planète vibre… d’une vibration constante et inaudible… (plus lentement) les scientifiques l’appellent… le ‘bourdonnement de la Terre’. (pause) Une bande sonore jouant… bien avant que nous soyons là… et longtemps après notre départ.",
+      "de": "Das geheime Lied der Erde… (Pause) Unser Planet summt… mit einer konstanten, unhörbaren Vibration… (langsamer) Wissenschaftler nennen es… den ‘Erdensummton’. (Pause) Ein Soundtrack, der spielt… lange bevor wir hier waren… und lange nachdem wir fort sind."
+    },
+    "6": {
+      "en": "A New Shuffle in History… (pause) Shuffle a deck of 52 cards… and odds are… that exact order has never existed before… in the history of the universe. (slightly louder) The possibilities? A mind-bending… 8… times 10 to the 67th power.",
+      "hi": "इतिहास में एक नया शफ़ल… (pause) 52 ताश के पत्तों की गड्डी को फेंटो… और संभावना है… कि वह सटीक क्रम पहले कभी… ब्रह्मांड के इतिहास में नहीं हुआ होगा। (slightly louder) संभावनाएँ? दिमाग़ हिला देने वाली… 8… गुणा 10 की घात 67।",
+      "es": "Un nuevo orden en la historia… (pausa) Baraja una baraja de 52 cartas… y es probable… que ese orden exacto nunca haya existido antes… en la historia del universo. (un poco más fuerte) ¿Las posibilidades? Asombrosas… 8… por 10 elevado a la 67.",
+      "fr": "Un nouveau mélange dans l’histoire… (pause) Mélange un jeu de 52 cartes… et il y a de fortes chances… que cet ordre exact n’ait jamais existé auparavant… dans l’histoire de l’univers. (un peu plus fort) Les possibilités ? Vertigineuses… 8… fois 10 à la puissance 67.",
+      "de": "Ein neues Mischen in der Geschichte… (Pause) Mische ein Kartenspiel mit 52 Karten… und die Wahrscheinlichkeit ist groß… dass diese genaue Reihenfolge noch nie zuvor… in der Geschichte des Universums existiert hat. (etwas lauter) Die Möglichkeiten? Atemberaubend… 8… mal 10 hoch 67."
+    },
+    "7": {
+      "en": "The Wood-Wide Web… (pause) Beneath the forest floor… trees are secretly talking… through vast fungal networks. (slower, softer) They share food… send warnings… and care for one another. (pause) A forest… is more of a family… than we ever knew.",
+      "hi": "वुड-वाइड वेब… (pause) जंगल की ज़मीन के नीचे… पेड़ चुपके से बातचीत करते हैं… विशाल फफूंद नेटवर्क के ज़रिए। (slower, softer) वे भोजन साझा करते हैं… चेतावनियाँ भेजते हैं… और एक-दूसरे की देखभाल करते हैं। (pause) जंगल… एक परिवार है… जितना हमने कभी सोचा भी नहीं।",
+      "es": "La red de madera… (pausa) Bajo el suelo del bosque… los árboles hablan en secreto… a través de vastas redes de hongos. (más lento, suave) Comparten comida… envían advertencias… y cuidan unos de otros. (pausa) Un bosque… es más una familia… de lo que jamás supimos.",
+      "fr": "Le ‘Wood-Wide Web’… (pause) Sous le sol de la forêt… les arbres se parlent en secret… par de vastes réseaux fongiques. (plus lentement, doucement) Ils partagent de la nourriture… envoient des avertissements… et prennent soin les uns des autres. (pause) Une forêt… est plus une famille… que nous ne l’avions jamais imaginé.",
+      "de": "Das ‘Wood-Wide Web’… (Pause) Unter dem Waldboden… sprechen Bäume heimlich miteinander… durch riesige Pilznetzwerke. (langsamer, weicher) Sie teilen Nahrung… senden Warnungen… und kümmern sich umeinander. (Pause) Ein Wald… ist mehr eine Familie… als wir je wussten."
+    },
+    "8": {
+      "en": "The Blue Whale’s Heartbeat… (pause) The largest animal to ever live… has a heartbeat so strong… (slightly deeper tone) it can be heard… over two miles away. (pause) Each thundering beat… pushes gallons of life… through its colossal frame.",
+      "hi": "नीली व्हेल की धड़कन… (pause) अब तक के सबसे बड़े जीव की… धड़कन इतनी तेज़ है… (slightly deeper tone) कि इसे दो मील से भी ज़्यादा दूर सुना जा सकता है। (pause) हर गूंजती धड़कन… जीवन के गैलन… उसके विशाल शरीर में प्रवाहित करती है।",
+      "es": "El latido del corazón de la ballena azul… (pausa) El animal más grande que jamás haya vivido… tiene un latido tan fuerte… (tono un poco más profundo) que puede escucharse… a más de tres kilómetros de distancia. (pausa) Cada latido retumbante… empuja galones de vida… a través de su colosal cuerpo.",
+      "fr": "Le battement de cœur de la baleine bleue… (pause) Le plus grand animal ayant jamais vécu… a un battement si puissant… (ton légèrement plus grave) qu’on peut l’entendre… à plus de trois kilomètres. (pause) Chaque battement tonitruant… propulse des litres de vie… à travers son corps colossal.",
+      "de": "Der Herzschlag des Blauwal… (Pause) Das größte Tier, das je gelebt hat… hat einen so starken Herzschlag… (etwas tieferer Ton) dass man ihn… über drei Kilometer weit hören kann. (Pause) Jeder donnernde Schlag… pumpt Liter von Leben… durch seinen kolossalen Körper."
+    },
+    "9": {
+      "en": "Boiling and Freezing Together… (pause) Under the right conditions… water can boil… and freeze… at the same time. (whisper) It’s called the triple point. (pause) A strange… and beautiful quirk of physics.",
+      "hi": "एक साथ उबालना और जमना… (pause) सही परिस्थितियों में… पानी एक ही समय में… उबल भी सकता है और जम भी सकता है। (whisper) इसे ट्रिपल पॉइंट कहते हैं। (pause) भौतिकी का एक अजीब… और खूबसूरत रहस्य।",
+      "es": "Hervir y congelar a la vez… (pausa) En las condiciones adecuadas… el agua puede hervir… y congelarse… al mismo tiempo. (susurro) Se llama el punto triple. (pausa) Una extraña… y hermosa rareza de la física.",
+      "fr": "Bouillir et geler en même temps… (pause) Dans les bonnes conditions… l’eau peut bouillir… et geler… en même temps. (chuchotement) Cela s’appelle le point triple. (pause) Une bizarrerie… étrange et magnifique de la physique.",
+      "de": "Gleichzeitig kochen und gefrieren… (Pause) Unter den richtigen Bedingungen… kann Wasser gleichzeitig… kochen und gefrieren. (Flüstern) Das nennt man den Tripelpunkt. (Pause) Eine seltsame… und wunderschöne Eigenart der Physik."
+    },
+    "10": {
+      "en": "The Boiling River… (pause) Deep in the Amazon… there flows a river so hot… (slower) it can boil animals alive if they fall in. (pause) Its source? Still a mystery… maybe fed by superheated waters… from the Earth’s hidden depths.",
+      "hi": "उबलती नदी… (pause) अमेज़न के भीतर… एक नदी बहती है जो इतनी गरम है… (slower) कि अगर कोई जानवर इसमें गिर जाए, तो वह ज़िंदा उबल सकता है। (pause) इसका स्रोत? अब भी एक रहस्य… शायद पृथ्वी की गहराई में मौजूद अति-गर्म पानी से पोषित।",
+      "es": "El río hirviente… (pausa) En lo profundo del Amazonas… fluye un río tan caliente… (más lento) que puede hervir a los animales vivos si caen en él. (pausa) ¿Su origen? Aún es un misterio… quizás alimentado por aguas sobrecalentadas… de las profundidades ocultas de la Tierra.",
+      "fr": "La rivière bouillante… (pause) Au cœur de l’Amazonie… coule une rivière si chaude… (plus lentement) qu’elle peut faire bouillir les animaux vivants s’ils y tombent. (pause) Sa source ? Toujours un mystère… peut-être alimentée par des eaux surchauffées… des profondeurs cachées de la Terre.",
+      "de": "Der kochende Fluss… (Pause) Tief im Amazonas… fließt ein Fluss, der so heiß ist… (langsamer) dass er Tiere lebendig kochen kann, wenn sie hineingeraten. (Pause) Seine Quelle? Immer noch ein Rätsel… vielleicht gespeist von überhitztem Wasser… aus den verborgenen Tiefen der Erde."
+    }
+  },
+  "jokes": {
+  "1": {
+    "english": "What do you call a fish wearing a bowtie? Sofishticated.",
+    "hindi": "एक बो टाई पहनने वाली मछली को क्या कहते हैं? सोफिश्टिकेटेड।",
+    "french": "Comment appelle-t-on un poisson avec un nœud papillon ? Sofishticated.",
+    "german": "Wie nennt man einen Fisch mit Fliege? Sofishticated.",
+    "spanish": "¿Cómo llamas a un pez con pajarita? Sofishticated."
+  },
+  "2": {
+    "english": "Why did the cow go to space? To see the moooon.",
+    "hindi": "गाय अंतरिक्ष में क्यों गई? मूून को देखने।",
+    "french": "Pourquoi la vache est-elle allée dans l’espace ? Pour voir la luuuune.",
+    "german": "Warum ging die Kuh ins All? Um den Moooond zu sehen.",
+    "spanish": "¿Por qué fue la vaca al espacio? Para ver la lunaaaa."
+  },
+  "3": {
+    "english": "What did one ocean say to the other ocean? Nothing, they just waved.",
+    "hindi": "एक महासागर ने दूसरे महासागर से क्या कहा? कुछ नहीं, बस हाथ हिलाया।",
+    "french": "Qu’a dit un océan à l’autre ? Rien, il a juste fait signe.",
+    "german": "Was sagte der eine Ozean zum anderen? Nichts, er hat nur gewunken.",
+    "spanish": "¿Qué le dijo un océano al otro? Nada, solo saludó con la mano."
+  },
+  "4": {
+    "english": "I told my computer I needed a break, and it froze.",
+    "hindi": "मैंने अपने कंप्यूटर से कहा कि मुझे ब्रेक चाहिए, और वह जम गया।",
+    "french": "J’ai dit à mon ordinateur que j’avais besoin d’une pause, et il a gelé.",
+    "german": "Ich sagte meinem Computer, ich bräuchte eine Pause, und er fror ein.",
+    "spanish": "Le dije a mi computadora que necesitaba un descanso, y se congeló."
+  },
+  "5": {
+    "english": "Why can’t leopards play hide and seek? Because they’re always spotted.",
+    "hindi": "तेंदुए लुका-छिपी क्यों नहीं खेल सकते? क्योंकि वे हमेशा धब्बेदार होते हैं।",
+    "french": "Pourquoi les léopards ne peuvent-ils pas jouer à cache-cache ? Parce qu’ils sont toujours tachetés.",
+    "german": "Warum können Leoparden nicht Verstecken spielen? Weil sie immer gefleckt sind.",
+    "spanish": "¿Por qué los leopardos no pueden jugar al escondite? Porque siempre están manchados."
+  },
+  "6": {
+    "english": "Why did the scarecrow win an award? Because he was outstanding in his field.",
+    "hindi": "कौवा भगाने वाले पुतले ने पुरस्कार क्यों जीता? क्योंकि वह अपने खेत में उत्कृष्ट था।",
+    "french": "Pourquoi l’épouvantail a-t-il gagné un prix ? Parce qu’il excellait dans son domaine.",
+    "german": "Warum gewann die Vogelscheuche einen Preis? Weil sie herausragend in ihrem Feld war.",
+    "spanish": "¿Por qué ganó un premio el espantapájaros? Porque se destacaba en su campo."
+  },
+  "7": {
+    "english": "What happens if you cross a snowman and a vampire? Frostbite.",
+    "hindi": "अगर आप एक हिममानव और एक पिशाच को मिलाएं तो क्या होता है? फ्रॉस्टबाइट।",
+    "french": "Que se passe-t-il si vous croisez un bonhomme de neige et un vampire ? Gelure.",
+    "german": "Was passiert, wenn man einen Schneemann mit einem Vampir kreuzt? Erfrierung.",
+    "spanish": "¿Qué pasa si cruzas un muñeco de nieve y un vampiro? Congelación."
+  },
+  "8": {
+    "english": "Why did the golfer bring two pairs of pants? In case he got a hole in one.",
+    "hindi": "गोल्फ खिलाड़ी दो पैंट क्यों लाया? ताकि अगर एक में छेद हो जाए।",
+    "french": "Pourquoi le golfeur a-t-il apporté deux pantalons ? Au cas où il ferait un trou en un.",
+    "german": "Warum brachte der Golfer zwei Hosen mit? Falls er ein Hole-in-One macht.",
+    "spanish": "¿Por qué el golfista trajo dos pares de pantalones? Por si hacía un hoyo en uno."
+  },
+  "9": {
+    "english": "Why did the banana go to the doctor? Because it wasn’t peeling well.",
+    "hindi": "केला डॉक्टर के पास क्यों गया? क्योंकि वह अच्छी तरह छिल नहीं रहा था।",
+    "french": "Pourquoi la banane est-elle allée chez le médecin ? Parce qu’elle ne s’épluchait pas bien.",
+    "german": "Warum ging die Banane zum Arzt? Weil sie sich nicht gut schälte.",
+    "spanish": "¿Por qué fue el plátano al médico? Porque no se estaba pelando bien."
+  },
+  "10": {
+    "english": "Why did the cat sit on the computer? It wanted to keep an eye on the mouse.",
+    "hindi": "बिल्ली कंप्यूटर पर क्यों बैठी? क्योंकि वह माउस पर नज़र रखना चाहती थी।",
+    "french": "Pourquoi le chat s’est-il assis sur l’ordinateur ? Parce qu’il voulait surveiller la souris.",
+    "german": "Warum saß die Katze auf dem Computer? Weil sie die Maus im Auge behalten wollte.",
+    "spanish": "¿Por qué se sentó el gato en la computadora? Porque quería vigilar al ratón."
+  }
+ },
+ "cosmic_riddles_or_quotes": {
+  "1": {
+    "english": "I’m always moving but have no legs. I dance across the sky at night and disappear in the day. — The stars",
+    "hindi": "मैं हमेशा चलता रहता हूँ लेकिन मेरे पैर नहीं हैं। मैं रात में आकाश में नृत्य करता हूँ और दिन में गायब हो जाता हूँ। — तारे",
+    "french": "Je suis toujours en mouvement mais je n’ai pas de jambes. Je danse dans le ciel la nuit et disparais le jour. — Les étoiles",
+    "german": "Ich bewege mich immer, habe aber keine Beine. Nachts tanze ich über den Himmel und verschwinde am Tag. — Die Sterne",
+    "spanish": "Siempre me muevo pero no tengo piernas. Bailo por el cielo de noche y desaparezco de día. — Las estrellas"
+  },
+  "2": {
+    "english": "The more you take from me, the bigger I get. I’m not a black hole, but I can be found on planets and moons. — A crater",
+    "hindi": "जितना अधिक तुम मुझसे लेते हो, मैं उतनी ही बड़ी हो जाती हूँ। मैं ब्लैक होल नहीं हूँ, लेकिन ग्रहों और चंद्रमाओं पर मिल सकती हूँ। — एक गड्ढा",
+    "french": "Plus tu prends de moi, plus je deviens grande. Je ne suis pas un trou noir, mais on peut me trouver sur des planètes et des lunes. — Un cratère",
+    "german": "Je mehr du von mir nimmst, desto größer werde ich. Ich bin kein Schwarzes Loch, aber man findet mich auf Planeten und Monden. — Ein Krater",
+    "spanish": "Cuanto más tomas de mí, más grande me vuelvo. No soy un agujero negro, pero puedo encontrarse en planetas y lunas. — Un cráter"
+  },
+  "3": {
+    "english": "I have no air yet I whistle. I have no wings yet I fly. I have no life yet I can die. — A comet",
+    "hindi": "मेरे पास हवा नहीं है फिर भी मैं सीटी बजाती हूँ। मेरे पास पंख नहीं हैं फिर भी मैं उड़ती हूँ। मेरा जीवन नहीं है फिर भी मैं मर सकती हूँ। — एक धूमकेतु",
+    "french": "Je n’ai pas d’air mais je siffle. Je n’ai pas d’ailes mais je vole. Je n’ai pas de vie mais je peux mourir. — Une comète",
+    "german": "Ich habe keine Luft, und doch pfeife ich. Ich habe keine Flügel, und doch fliege ich. Ich habe kein Leben, und doch kann ich sterben. — Ein Komet",
+    "spanish": "No tengo aire pero silbo. No tengo alas pero vuelo. No tengo vida pero puedo morir. — Un cometa"
+  },
+  "4": {
+    "english": "I’m always running, but I never move from my place. You can find me on Earth and in space. — Time",
+    "hindi": "मैं हमेशा भागती रहती हूँ, लेकिन अपनी जगह से कभी नहीं हटती। तुम मुझे पृथ्वी और अंतरिक्ष दोनों में पा सकते हो। — समय",
+    "french": "Je cours toujours, mais je ne bouge jamais de ma place. On peut me trouver sur Terre et dans l’espace. — Le temps",
+    "german": "Ich laufe immer, bewege mich aber nie von meinem Platz. Man findet mich auf der Erde und im Weltraum. — Die Zeit",
+    "spanish": "Siempre corro, pero nunca me muevo de mi lugar. Puedes encontrarme en la Tierra y en el espacio. — El tiempo"
+  },
+  "5": {
+    "english": "I’m invisible but hold everything together. Without me, the universe would fly apart. — Gravity",
+    "hindi": "मैं अदृश्य हूँ लेकिन सबको साथ रखती हूँ। मेरे बिना, ब्रह्मांड बिखर जाएगा। — गुरुत्वाकर्षण",
+    "french": "Je suis invisible mais je tiens tout ensemble. Sans moi, l’univers se désagrégerait. — La gravité",
+    "german": "Ich bin unsichtbar, halte aber alles zusammen. Ohne mich würde das Universum auseinanderfliegen. — Die Gravitation",
+    "spanish": "Soy invisible pero mantengo todo unido. Sin mí, el universo se dispersaría. — La gravedad"
+  },
+  "6": {
+    "english": "“That’s one small step for man, one giant leap for mankind.” — Neil Armstrong",
+    "hindi": "“यह मनुष्य के लिए एक छोटा सा कदम है, लेकिन मानव जाति के लिए एक विशाल छलांग।” — नील आर्मस्ट्रांग",
+    "french": "« C’est un petit pas pour l’homme, mais un bond de géant pour l’humanité. » — Neil Armstrong",
+    "german": "„Das ist ein kleiner Schritt für einen Menschen, aber ein riesiger Sprung für die Menschheit.“ — Neil Armstrong",
+    "spanish": "“Es un pequeño paso para un hombre, pero un gran salto para la humanidad.” — Neil Armstrong"
+  },
+  "7": {
+    "english": "“Across the sea of space, the stars are other suns.” — Carl Sagan",
+    "hindi": "“अंतरिक्ष के सागर के पार, तारे दूसरे सूरज हैं।” — कार्ल सागन",
+    "french": "« À travers la mer de l’espace, les étoiles sont d’autres soleils. » — Carl Sagan",
+    "german": "„Jenseits des Meeres des Weltraums sind die Sterne andere Sonnen.“ — Carl Sagan",
+    "spanish": "“A través del mar del espacio, las estrellas son otros soles.” — Carl Sagan"
+  },
+  "8": {
+    "english": "“Look again at that dot. That’s here. That’s home. That’s us — on this pale blue dot, our fragile oasis in the cosmic dark.\" — Carl Sagan",
+    "hindi": "“उस बिंदु को फिर से देखो। यही हमारा घर है। यही हम हैं — इस हल्के नीले बिंदु पर, ब्रह्मांडीय अंधकार में हमारा नाज़ुक नखलिस्तान।” — कार्ल सागन",
+    "french": "« Regarde encore ce point. C’est ici. C’est chez nous. C’est nous — sur ce petit point bleu pâle, notre fragile oasis dans l’obscurité cosmique. » — Carl Sagan",
+    "german": "„Schau dir diesen Punkt noch einmal an. Das ist hier. Das ist unser Zuhause. Das sind wir — auf diesem blassen blauen Punkt, unserer zerbrechlichen Oase in der kosmischen Dunkelheit.“ — Carl Sagan",
+    "spanish": "“Mira otra vez ese punto. Ese es aquí. Ese es nuestro hogar. Ese somos nosotros — en este pálido punto azul, nuestro frágil oasis en la oscuridad cósmica.” — Carl Sagan"
+  },
+  "9": {
+    "english": "“Somewhere, something incredible is waiting to be known.” — Carl Sagan",
+    "hindi": "“कहीं न कहीं, कुछ अद्भुत खोजे जाने की प्रतीक्षा कर रहा है।” — कार्ल सागन",
+    "french": "« Quelque part, quelque chose d’incroyable attend d’être découvert. » — Carl Sagan",
+    "german": "„Irgendwo wartet etwas Unglaubliches darauf, entdeckt zu werden.“ — Carl Sagan",
+    "spanish": "“En algún lugar, algo increíble está esperando a ser descubierto.” — Carl Sagan"
+  },
+  "10": {
+    "english": "“We are made of star-stuff. We are a way for the cosmos to know itself.” — Carl Sagan",
+    "hindi": "“हम तारों के पदार्थ से बने हैं। हम ब्रह्मांड के लिए खुद को जानने का एक तरीका हैं।” — कार्ल सागन",
+    "french": "« Nous sommes faits de poussière d’étoiles. Nous sommes un moyen pour le cosmos de se connaître lui-même. » — Carl Sagan",
+    "german": "„Wir sind aus Sternenstaub gemacht. Wir sind ein Weg für das Universum, sich selbst zu erkennen.“ — Carl Sagan",
+    "spanish": "“Estamos hechos de materia estelar. Somos una forma en que el cosmos se conoce a sí mismo.” — Carl Sagan"
+  }
+},
+"witty_poems": {
+  "1": {
+    "english": "My bed and I are perfect for each other, but my alarm clock keeps trying to break us up.",
+    "hindi": "मेरा बिस्तर और मैं एक-दूसरे के लिए बिल्कुल सही हैं, लेकिन मेरा अलार्म घड़ी हमें अलग करने की कोशिश करती रहती है।",
+    "french": "Mon lit et moi sommes parfaits l’un pour l’autre, mais mon réveil essaie toujours de nous séparer.",
+    "german": "Mein Bett und ich sind perfekt füreinander, aber mein Wecker versucht ständig, uns auseinanderzubringen.",
+    "spanish": "Mi cama y yo somos perfectos el uno para el otro, pero mi despertador siempre intenta separarnos."
+  },
+  "2": {
+    "english": "I built a ship from paper dreams, it sails on hope and silver beams.",
+    "hindi": "मैंने कागज़ी सपनों से एक जहाज़ बनाया, जो उम्मीद और चाँदी की किरणों पर चलता है।",
+    "french": "J’ai construit un navire à partir de rêves de papier, il navigue sur l’espoir et des rayons d’argent.",
+    "german": "Ich baute ein Schiff aus Papiertäumen, es segelt auf Hoffnung und silbernen Strahlen.",
+    "spanish": "Construí un barco con sueños de papel, navega sobre esperanza y rayos de plata."
+  },
+  "3": {
+    "english": "The sun is late, the coffee’s cold — mornings are brave, or just too bold.",
+    "hindi": "सूरज देर से आया, कॉफी ठंडी है — सुबहें बहादुर होती हैं, या शायद बहुत हिम्मती।",
+    "french": "Le soleil est en retard, le café est froid — les matins sont courageux, ou juste trop audacieux.",
+    "german": "Die Sonne ist spät, der Kaffee ist kalt — Morgen sind mutig oder einfach zu kühn.",
+    "spanish": "El sol llega tarde, el café está frío — las mañanas son valientes o simplemente demasiado atrevidas."
+  },
+  "4": {
+    "english": "I asked the stars for a map of the skies, they handed me mirrors for my eyes.",
+    "hindi": "मैंने तारों से आसमान का नक्शा माँगा, उन्होंने मेरी आँखों के लिए आईने थमा दिया।",
+    "french": "J’ai demandé aux étoiles une carte du ciel, elles m’ont tendu des miroirs pour mes yeux.",
+    "german": "Ich bat die Sterne um eine Karte des Himmels, sie gaben mir Spiegel für meine Augen.",
+    "spanish": "Le pedí a las estrellas un mapa del cielo, y me dieron espejos para mis ojos."
+  },
+  "5": {
+    "english": "Gravity’s a clingy friend — she’ll keep you close until the end.",
+    "hindi": "गुरुत्वाकर्षण एक चिपकू दोस्त है — वह तुम्हें अंत तक पास रखेगी।",
+    "french": "La gravité est une amie collante — elle te gardera près jusqu’à la fin.",
+    "german": "Die Schwerkraft ist eine anhängliche Freundin — sie hält dich bis zum Ende fest.",
+    "spanish": "La gravedad es una amiga pegajosa — te mantendrá cerca hasta el final."
+  },
+  "6": {
+    "english": "I asked the moon to light my way, it winked and turned the night to day.",
+    "hindi": "मैंने चाँद से मेरा रास्ता रोशन करने को कहा, उसने आँख मारी और रात को दिन में बदल दिया।",
+    "french": "J’ai demandé à la lune d’éclairer mon chemin, elle m’a fait un clin d’œil et a changé la nuit en jour.",
+    "german": "Ich bat den Mond, meinen Weg zu erleuchten, er zwinkerte und verwandelte die Nacht in den Tag.",
+    "spanish": "Le pedí a la luna que iluminara mi camino, me guiñó un ojo y convirtió la noche en día."
+  },
+  "7": {
+    "english": "A cloud forgot its silver side, so rain became its way to hide.",
+    "hindi": "एक बादल अपनी चाँदी की परत भूल गया, इसलिए बारिश उसका छुपने का तरीका बन गई।",
+    "french": "Un nuage a oublié son côté argenté, alors la pluie est devenue sa façon de se cacher.",
+    "german": "Eine Wolke vergaß ihre silberne Seite, also wurde Regen ihre Art, sich zu verstecken.",
+    "spanish": "Una nube olvidó su lado plateado, así que la lluvia se convirtió en su forma de esconderse."
+  },
+  "8": {
+    "english": "I grew a garden in my head; the flowers bloomed in dreams instead.",
+    "hindi": "मैंने अपने मन में एक बगीचा उगाया; फूल सपनों में ही खिले।",
+    "french": "J’ai cultivé un jardin dans ma tête ; les fleurs ont fleuri seulement dans mes rêves.",
+    "german": "Ich pflanzte einen Garten in meinem Kopf; die Blumen blühten stattdessen in Träumen.",
+    "spanish": "Cultivé un jardín en mi mente; las flores florecieron solo en sueños."
+  },
+  "9": {
+    "english": "The stars all laughed behind their glow — they know the things we’ll never know.",
+    "hindi": "सारे तारे अपनी चमक के पीछे हँसते हैं — वे चीज़ें जानते हैं जो हम कभी नहीं जानेंगे।",
+    "french": "Toutes les étoiles riaient derrière leur éclat — elles savent des choses que nous ne saurons jamais.",
+    "german": "Alle Sterne lachten hinter ihrem Leuchten — sie wissen Dinge, die wir nie erfahren werden.",
+    "spanish": "Todas las estrellas se reían detrás de su brillo — saben cosas que nunca sabremos."
+  },
+  "10": {
+    "english": "My coffee tried to stage a coup; it woke the cup, but not me too.",
+    "hindi": "मेरी कॉफी ने बगावत करने की कोशिश की; उसने कप को जगा दिया, लेकिन मुझे नहीं।",
+    "french": "Mon café a essayé de faire un coup d’État ; il a réveillé la tasse, mais pas moi.",
+    "german": "Mein Kaffee versuchte einen Aufstand; er weckte die Tasse, aber nicht mich.",
+    "spanish": "Mi café intentó dar un golpe; despertó a la taza, pero no a mí."
+  }
+}
+
+}
+

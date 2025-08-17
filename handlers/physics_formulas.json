@@ -1,0 +1,137 @@
+{
+  "motion": {
+    "velocity": "v = u + a*t",
+    "deceleration": "v = u - a*t",
+    "displacement": "s = u*t + 0.5*a*t**2",
+    "final velocity": "v**2 = u**2 + 2*a*s",
+    "average speed": "v = d / t",
+    "acceleration": "a = (v - u) / t",
+    "relative velocity": "v_rel = v1 - v2",
+    "uniform motion": "s = v*t"
+  },
+  "projectile motion": {
+    "range": "R = (u**2 * sin(2*θ)) / g",
+    "max height": "H = (u**2 * sin(θ)**2) / (2*g)",
+    "time of flight": "T = (2*u*sin(θ)) / g"
+  },
+  "work energy power": {
+    "work": "W = F*d*cos(θ)",
+    "kinetic energy": "KE = 0.5*m*v**2",
+    "potential energy": "PE = m*g*h",
+    "power": "P = W / t",
+    "mechanical energy": "E = KE + PE",
+    "work-energy theorem": "W = ΔK"
+  },
+  "newton's laws": {
+    "force": "F = m*a",
+    "momentum": "p = m*v",
+    "impulse": "J = F*Δt",
+    "newton's second law": "F = dp/dt",
+    "friction": "f = μ*N"
+  },
+  "circular motion": {
+    "centripetal acceleration": "a = v**2 / r",
+    "angular velocity": "ω = θ / t",
+    "centripetal force": "F = m*v**2 / r",
+    "angular momentum": "L = I*ω",
+    "tangential velocity": "v = ω*r"
+  },
+  "rotation": {
+    "moment of inertia": "I = Σm*r**2",
+    "torque": "τ = I*α",
+    "angular momentum": "L = I*ω",
+    "rotational KE": "KE = 0.5*I*ω**2"
+  },
+  "gravitation": {
+    "gravitational force": "F = G*m1*m2 / r**2",
+    "potential energy": "U = -G*m1*m2 / r",
+    "acceleration due to gravity": "g = G*M / R**2",
+    "orbital velocity": "v = sqrt(G*M / r)",
+    "escape velocity": "v_e = sqrt(2*G*M / R)"
+  },
+  "fluid mechanics": {
+    "pressure": "P = F / A",
+    "buoyant force": "Fb = ρ*g*V",
+    "continuity equation": "A1*v1 = A2*v2",
+    "bernoulli's theorem": "P + 0.5*ρ*v**2 + ρ*g*h = constant",
+    "viscous force": "F = η*A*(dv/dx)"
+  },
+  "oscillations": {
+    "pendulum": "T = 2*π*sqrt(l / g)",
+    "spring": "T = 2*π*sqrt(m / k)",
+    "angular frequency": "ω = 2*π*f",
+    "displacement in SHM": "x = A*sin(ω*t + φ)",
+    "energy in SHM": "E = 0.5*k*A**2"
+  },
+  "waves and optics": {
+    "wave speed": "v = f*λ",
+    "lens formula": "1/f = 1/v - 1/u",
+    "magnification": "M = h2 / h1 = v / u",
+    "refractive index": "n = c / v",
+    "mirror equation": "1/f = 1/v + 1/u",
+    "young's double slit": "β = λ*D/d",
+    "snell's law": "n1*sin(θ1) = n2*sin(θ2)"
+  },
+  "thermodynamics": {
+    "heat": "Q = m*c*ΔT",
+    "ideal gas law": "P*V = n*R*T",
+    "internal energy": "U = 3/2*n*R*T",
+    "first law": "ΔU = Q - W",
+    "efficiency": "η = W / Q1"
+  },
+  "modern physics": {
+    "energy of photon": "E = h*f",
+    "de broglie wavelength": "λ = h / p",
+    "mass-energy": "E = m*c**2",
+    "radioactive decay": "N = N0 * e**(-λ*t)",
+    "stopping potential": "eV = hf - ϕ",
+    "binding energy": "E = (Δm)*c**2",
+    "uncertainty principle": "Δx * Δp ≥ ℏ / 2",
+    "bohr radius": "r = n**2 * h**2 / (4 * π**2 * m * e**2)"
+  },
+  "electricity": {
+    "ohm's law": "V = I*R",
+    "power": "P = V*I",
+    "resistance in series": "R = R1 + R2 + R3",
+    "resistance in parallel": "1/R = 1/R1 + 1/R2 + 1/R3",
+    "joule heating": "H = I**2 * R * t",
+    "coulomb's law": "F = k * q1 * q2 / r**2"
+  },
+  "capacitance": {
+    "capacitance": "C = Q/V",
+    "energy stored": "U = 0.5*C*V**2",
+    "parallel": "C = C1 + C2 + C3",
+    "series": "1/C = 1/C1 + 1/C2 + 1/C3"
+  },
+  "magnetism": {
+    "force on charge": "F = q*(v × B)",
+    "lorentz force": "F = q(E + v × B)",
+    "magnetic field (wire)": "B = μ₀*I / (2*π*r)",
+    "torque on loop": "τ = n*B*I*A*sin(θ)"
+  },
+  "em induction": {
+    "faraday's law": "emf = -dΦ/dt",
+    "lenz's law": "emf ∝ -ΔΦ",
+    "inductive reactance": "X_L = ω*L",
+    "capacitive reactance": "X_C = 1 / (ω*C)"
+  },
+  "ac circuits": {
+    "rms voltage": "V_rms = V0 / sqrt(2)",
+    "rms current": "I_rms = I0 / sqrt(2)",
+    "power factor": "cos(φ) = R/Z",
+    "impedance": "Z = sqrt(R**2 + (X_L - X_C)**2)"
+  },
+  "electronics": {
+    "binary to decimal": "D = b_n*2^n + ... + b_0*2^0",
+    "ohm's law (diode)": "V = n*k*T/q * ln(I/I0 + 1)",
+    "truth table AND": "A AND B = A·B",
+    "truth table OR": "A OR B = A + B",
+    "truth table NOT": "NOT A = ¬A"
+  },
+  "dimensional analysis": {
+    "force": "[M*L*T^-2]",
+    "energy": "[M*L^2*T^-2]",
+    "power": "[M*L^2*T^-3]",
+    "pressure": "[M*L^-1*T^-2]"
+  }
+}
