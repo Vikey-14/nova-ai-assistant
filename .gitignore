@@ -1,3 +1,5 @@
+# === Nova AI Assistant .gitignore ===
+
 # --- Python bytecode & caches ---
 __pycache__/
 *.py[cod]
@@ -23,6 +25,8 @@ dist/
 pip-wheel-metadata/
 nova_setup/
 share_clean/
+share/
+audit/
 
 # Keep the PyInstaller spec for reproducible builds
 *.spec
@@ -61,11 +65,11 @@ interaction_log.txt
 interaction_log.csv
 logs/
 
-# --- Runtime data/state ---
+# --- Runtime data/state (ignored; keep placeholder only) ---
 data/**
 !data/README.md
 
-# --- Project-specific generated files (root-level legacy) ---
+# --- Project-specific generated files (legacy roots) ---
 notes/
 reminders/
 nova_memory.json
@@ -80,12 +84,20 @@ AppData/
 
 # --- Assets: keep small curated files, ignore bulk dumps ---
 nova_face_assets/
+# To keep specific assets, unignore them explicitly:
 # !nova_face_assets/README.md
 # !nova_face_assets/*.png
 
 # --- Large data you don't want in source zips/repos ---
 datasets/
 models/
+
+# --- Release/transfer artifacts (optional) ---
+*.7z
+*.zip
+nova_clean.zip
+nova_parts.7z.*
+tiny.zip
 
 # --- Keep essential small config/assets needed at runtime ---
 !poem_bank.json
