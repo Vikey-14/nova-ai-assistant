@@ -21,6 +21,8 @@ build/
 dist/
 *.egg-info/
 pip-wheel-metadata/
+nova_setup/
+share_clean/
 
 # Keep the PyInstaller spec for reproducible builds
 *.spec
@@ -57,6 +59,17 @@ coverage.xml
 nova_logs.txt
 interaction_log.txt
 interaction_log.csv
+logs/
+
+# --- Runtime data/state ---
+data/**
+!data/README.md
+
+# --- Project-specific generated files (root-level legacy) ---
+notes/
+reminders/
+nova_memory.json
+nova_notes.json
 
 # --- App data / binaries / temp ---
 *.bin
@@ -65,15 +78,8 @@ interaction_log.csv
 *.db-journal
 AppData/
 
-# --- Project-specific generated files ---
-notes/
-reminders/
-nova_memory.json
-nova_notes.json
-
 # --- Assets: keep small curated files, ignore bulk dumps ---
 nova_face_assets/
-# (If you keep only a few PNGs, uncomment below and list what to keep)
 # !nova_face_assets/README.md
 # !nova_face_assets/*.png
 
