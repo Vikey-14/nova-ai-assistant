@@ -1,10 +1,11 @@
 # gui_interface.py — Nova main UI
 # (starry background + smoother logo + never-under-taskbar + mic click-to-talk)
+# + ghost scrollbar (hidden until edge-hover) + no-flicker reveal
 
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from tkinter import font as tkfont
-from PIL import Image, ImageTk, Image
+from PIL import Image, ImageTk  # ← needed for starfield + logo images
 import os, math, time, ctypes, threading  # threading for push-to-talk
 
 # ✅ Single source of truth for app resources / callbacks
@@ -154,7 +155,7 @@ class Tooltip:
         finally:
             self.tip_window = None
 
-# -----------------------------  Nova Solution popup (unchanged) -----------------------------
+# -----------------------------  Nova Solution popup -----------------------------
 POP_BG        = "#0f0f0f"
 POP_CARD_BG   = "#131313"
 POP_TEXT_FG   = "#e8e8e8"
@@ -286,6 +287,200 @@ def _star_points(cx, cy, r_out, r_in, points=4, angle_offset=0.0):
         pts.extend([cx + r * math.cos(ang), cy + r * math.sin(ang)])
     return pts
 
+# ----------------------------- Starry “Ghost” Scrollbar -----------------------------
+class GhostScrollbar(tk.Canvas):
+    """A custom canvas-based vertical scrollbar that:
+       • stays hidden until the cursor nears the right edge or over the bar
+       • matches the starry theme
+       • pill thumb: black fill with outline in current language glow color
+       • supports Up/Down arrow keys to scroll (thumb visible while moving)
+    """
+    def __init__(self, master, accent="#00ffcc", width=10, **kw):
+        super().__init__(master, width=width, highlightthickness=0, bd=0, bg=STAR_BG, **kw)
+        self.accent = accent
+        self._text = None
+        self._first = 0.0
+        self._last  = 1.0
+        self._thumb_id = None
+        self._dragging = False
+        self._drag_offset = 0.0
+        self._hide_after_id = None
+        self._visible = False
+        self._min_thumb_px = 28
+        self._hover_zone_px = 28
+        self._track_color = "#151515"  # subtle track to fit dark theme
+        self._thumb_fill  = "#000000"  # ← black fill, as you wanted
+
+        # drawing & interactions
+        self.bind("<Configure>", lambda e: self._redraw())
+        self.bind("<Enter>", self._show_now)
+        self.bind("<Leave>", self._schedule_hide)
+        self.bind("<Button-1>", self._on_click)
+        self.bind("<B1-Motion>", self._on_drag)
+        self.bind("<ButtonRelease-1>", self._on_release)
+        self.bind("<Motion>", self._maybe_hover)
+
+    # Attach to a Text widget
+    def attach(self, text_widget: tk.Text):
+        self._text = text_widget
+        text_widget.configure(yscrollcommand=self.on_textscroll)
+        # show on wheel
+        text_widget.bind("<MouseWheel>", lambda e: (self._show_now(e), self._wheel(e)), add="+")
+        # reveal when cursor approaches right edge
+        text_widget.bind("<Motion>", self._edge_probe, add="+")
+        # Up/Down arrow keys also scroll & reveal
+        text_widget.bind_all("<Up>", self._on_arrow, add="+")
+        text_widget.bind_all("<Down>", self._on_arrow, add="+")
+        self._redraw()
+
+    # yscrollcommand from Text → update fractions and redraw
+    def on_textscroll(self, first, last):
+        try:
+            self._first = float(first)
+            self._last  = float(last)
+        except Exception:
+            self._first, self._last = 0.0, 1.0
+        self._redraw()
+        # Hide entirely if everything fits
+        if self._first <= 0.0001 and self._last >= 0.9999:
+            self._hide_now()
+        else:
+            self._show_now()
+        return
+
+    # pill thumb helper: center rectangle + two rounded caps
+    def _draw_pill(self, x0, y0, x1, y1, fill, outline, width=1):
+        try:
+            r = int(min(x1 - x0, y1 - y0) // 2)
+            body = self.create_rectangle(x0 + r, y0, x1 - r, y1, fill=fill, outline=outline, width=width)
+            self.create_oval(x0, y0, x0 + 2*r, y0 + 2*r, fill=fill, outline=outline, width=width)
+            self.create_oval(x1 - 2*r, y1 - 2*r, x1, y1, fill=fill, outline=outline, width=width)
+            return body
+        except Exception:
+            return self.create_rectangle(x0, y0, x1, y1, fill=fill, outline=outline, width=width)
+
+    # Text wheel → forward to yview
+    def _wheel(self, evt):
+        if not self._text: return
+        delta_lines = -1 * (evt.delta // 120)
+        self._text.yview_scroll(delta_lines, "units")
+        self._show_now()
+
+    # If cursor near right inside edge of text area, reveal the bar
+    def _edge_probe(self, evt):
+        try:
+            w = evt.widget.winfo_width()
+            if evt.x >= max(0, w - self._hover_zone_px):
+                self._show_now()
+            else:
+                self._schedule_hide()
+        except Exception:
+            pass
+
+    # Keyboard arrows: scroll & reveal
+    def _on_arrow(self, evt):
+        if not self._text: return
+        try:
+            if evt.keysym == "Up":
+                self._text.yview_scroll(-3, "units")
+            elif evt.keysym == "Down":
+                self._text.yview_scroll(3, "units")
+            else:
+                return
+            self._show_now()
+            self._schedule_hide()
+        except Exception:
+            pass
+
+    def _show_now(self, _evt=None):
+        if not self._visible:
+            self.grid()  # ensure it's gridded
+            self._visible = True
+        # cancel pending hide
+        if self._hide_after_id:
+            try: self.after_cancel(self._hide_after_id)
+            except Exception: pass
+            self._hide_after_id = None
+        self._redraw()
+
+    def _schedule_hide(self, _evt=None):
+        if self._dragging: return
+        if self._hide_after_id:
+            try: self.after_cancel(self._hide_after_id)
+            except Exception: pass
+        self._hide_after_id = self.after(700, self._hide_now)
+
+    def _hide_now(self):
+        if self._dragging: return
+        if self._visible:
+            self.grid_remove()
+            self._visible = False
+
+    def _thumb_rect(self):
+        H = max(1, self.winfo_height())
+        top = int(H * self._first)
+        bot = int(H * self._last)
+        if bot - top < self._min_thumb_px:
+            mid = (top + bot) // 2
+            top = max(0, mid - self._min_thumb_px // 2)
+            bot = min(H, top + self._min_thumb_px)
+        # small insets
+        x0, x1 = 2, max(2, self.winfo_width() - 2)
+        return x0, top, x1, bot
+
+    def _redraw(self):
+        self.delete("all")
+        w = self.winfo_width(); h = self.winfo_height()
+        # track
+        self.create_rectangle(0, 0, w, h, fill=STAR_BG, outline="")
+        self.create_rectangle(2, 2, w - 2, h - 2, fill=self._track_color, outline="")
+        # thumb only if scrollable
+        if self._last - self._first >= 0.9999:
+            return
+        x0, y0, x1, y1 = self._thumb_rect()
+        # slight inset for neat edges
+        x0 += 1; x1 -= 1
+        self._thumb_id = self._draw_pill(x0, y0, x1, y1, fill=self._thumb_fill, outline=self.accent, width=1)
+
+    # Mouse interactions
+    def _on_click(self, evt):
+        if not self._text: return
+        self._dragging = True
+        _, y0, _, y1 = self._thumb_rect()
+        self._drag_offset = evt.y - y0 if (y0 <= evt.y <= y1) else (self._min_thumb_px // 2)
+        self._jump_to(evt.y)
+        self._show_now()
+
+    def _on_drag(self, evt):
+        if not self._dragging or not self._text: return
+        self._jump_to(evt.y)
+
+    def _on_release(self, _evt):
+        self._dragging = False
+        self._schedule_hide()
+
+    def _jump_to(self, y):
+        h = max(1, self.winfo_height() - self._min_thumb_px)
+        frac = max(0.0, min(1.0, (y - self._drag_offset) / h))
+        try:
+            self._text.yview_moveto(frac)
+        except Exception:
+            pass
+
+    # allow external accent update
+    def set_accent(self, accent_hex: str):
+        self.accent = accent_hex or self.accent
+        try:
+            if self._thumb_id:
+                self.itemconfig(self._thumb_id, outline=self.accent)
+        except Exception:
+            pass
+
+    def _maybe_hover(self, evt):
+        # keep visible while hovering over bar area
+        self._show_now()
+        self._schedule_hide()
+
 # ----------------------------- Main GUI -----------------------------
 class NovaGUI:
     def __init__(self):
@@ -297,7 +492,7 @@ class NovaGUI:
         self.animation_ready = False
         self._anim_started_frames = 0
 
-        # Build hidden, then show instantly
+        # Build hidden, then show with no flicker
         self.root = tk.Tk()
         self.root.withdraw()
         self.root.title("NOVA - AI Assistant")
@@ -305,7 +500,7 @@ class NovaGUI:
         # Wider so pills never clip
         W, H = 820, 680
         self.root.geometry(f"{W}x{H}")
-        position_main_window(self.root, W, H)
+        position_main_window(self.root, W, H)  # compute final position BEFORE showing
         self.root.configure(bg=STAR_BG)
         self.root.resizable(False, False)
 
@@ -315,7 +510,7 @@ class NovaGUI:
         self._bg_label.image = self._bg_img
         self._bg_label.place(x=0, y=0, relwidth=1, relheight=1)
         self._bg_label.lower()
-        # NEW: keep a PIL copy of the big starfield for exact crops
+        # keep a PIL copy of the big starfield for exact crops
         self._bg_pil = ImageTk.getimage(self._bg_img).copy()
 
         # --- Logo + sparkles (smoother) ---
@@ -358,7 +553,7 @@ class NovaGUI:
         self.status_bar.pack(pady=(0, 6), fill="x")
         self._build_mode_status_bar()
 
-        # --- Chat area with a vertical scrollbar (no mid-word splits) ---
+        # --- Chat area with custom “ghost” scrollbar (no mid-word splits) ---
         chat_wrap = tk.Frame(self.root, bg=STAR_BG)
         chat_wrap.pack(padx=10, pady=5, fill="x")
 
@@ -367,16 +562,22 @@ class NovaGUI:
             fg=self.glow_color, font=("Consolas", 10), bd=0,
             wrap="word"
         )
-        ys = tk.Scrollbar(chat_wrap, orient="vertical", command=self.text_display.yview)
-        self.text_display.configure(yscrollcommand=ys.set)
+
+        # Starry Ghost scrollbar (hidden until edge-hover)
+        self.ghost_scroll = GhostScrollbar(chat_wrap, accent=self.glow_color, width=10)
+        # grid layout: text in col 0, ghost bar in col 1
         self.text_display.grid(row=0, column=0, sticky="nsew")
-        ys.grid(row=0, column=1, sticky="ns")
+        self.ghost_scroll.grid(row=0, column=1, sticky="ns")  # will hide itself when not needed
         chat_wrap.grid_columnconfigure(0, weight=1)
         chat_wrap.grid_rowconfigure(0, weight=1)
 
-        # Mouse wheel scrolling (Windows)
+        # tie text ↔ scrollbar
+        self.ghost_scroll.attach(self.text_display)
+
+        # Mouse wheel (extra binding in case focus elsewhere)
         def _on_mousewheel(evt):
             self.text_display.yview_scroll(-1 * (evt.delta // 120), "units")
+            self.ghost_scroll._show_now()
         self.text_display.bind("<Enter>", lambda e: self.text_display.bind_all("<MouseWheel>", _on_mousewheel))
         self.text_display.bind("<Leave>", lambda e: self.text_display.unbind_all("<MouseWheel>"))
 
@@ -512,12 +713,9 @@ class NovaGUI:
         self._start_idle_check()
         self.input_entry.bind("<Return>", lambda event: self._on_send())
 
-        # Reveal then re-position (avoid under taskbar), and re-check a bit later
-        self._reveal_window()
-        position_main_window(self.root, W, H)
-        self.root.after(120, lambda: position_main_window(self.root, W, H))
-        self.root.after(600, self._ensure_above_taskbar)
-        _place_main_window_safely(self.root, y_percent=0.26, bottom_margin=64)
+        # ---- Reveal window with no flicker:
+        # 1) final geometry already set; 2) show at alpha=0; 3) safe clamp pass; 4) fade in.
+        self._reveal_window_fade_in()
 
         # After layout, paint exact patches so patterns line up
         self.root.after(50, self._refresh_bg_patches)
@@ -587,9 +785,20 @@ class NovaGUI:
         except Exception:
             pass
 
-    def _reveal_window(self):
+    def _set_alpha(self, a: float):
+        try:
+            self.root.wm_attributes("-alpha", float(a))
+        except Exception:
+            pass
+
+    def _reveal_window_fade_in(self):
+        # geometry already set to the final spot by position_main_window()
+        self._set_alpha(0.0)
         self.root.deiconify()
         self.root.update_idletasks()
+        # one safe placement pass (invisible), then fade in
+        _place_main_window_safely(self.root, y_percent=0.26, bottom_margin=64)
+        self.root.after(260, lambda: (self._set_alpha(1.0), self._ensure_above_taskbar()))
 
     # ---------- animate logo + sparkles (time-based; ~30 FPS) ----------
     def _animate_logo_and_sparkles(self):
@@ -696,6 +905,8 @@ class NovaGUI:
             if self.hover_circle:
                 self.mic_canvas.itemconfig(self.hover_circle, outline=self.glow_color)
             self.wake_button.config(fg=self.glow_color, activeforeground=self.glow_color)
+            # update ghost scrollbar accent too
+            self.ghost_scroll.set_accent(self.glow_color)
         except Exception: pass
         self._update_status_pills()
         self.update_typing_label()
@@ -896,10 +1107,20 @@ class NovaGUI:
         try: self.root.deiconify()
         except Exception: pass
 
-# Global instance
-nova_gui = NovaGUI()
+# ----------------------------- Lazy singleton factory -----------------------------
+_nova_gui = None
+def get_gui():
+    """Create the GUI only when called (after language is hydrated)."""
+    global _nova_gui
+    if _nova_gui is None:
+        _nova_gui = NovaGUI()
+    return _nova_gui
 
-# ---- Bridge for solver popups (unchanged logic) ----
+def gui_if_ready():
+    """Return GUI instance if already created; don't auto-create."""
+    return _nova_gui
+
+# ---- Bridge for solver popups (unchanged logic, but no auto-create) ----
 _MODE_META = {
     "math": ("Math Mode", "🧠"),
     "plot": ("Plot Mode", "📈"),
@@ -909,26 +1130,31 @@ _MODE_META = {
 
 def show_mode_solution(mode_key: str, text: str):
     name, emoji = _MODE_META.get(mode_key.lower(), ("Solution", "✨"))
+    g = gui_if_ready()
+    if not g: return
     try:
-        nova_gui.root.after(0, lambda: nova_gui.show_solution(mode=name, emoji=emoji, answer_text=text))
+        g.root.after(0, lambda: g.show_solution(mode=name, emoji=emoji, answer_text=text))
     except Exception:
         pass
 
 def append_mode_solution(mode_key: str, text: str):
+    g = gui_if_ready()
+    if not g: return
     try:
-        nova_gui.root.after(0, lambda: nova_gui.append_solution(text))
+        g.root.after(0, lambda: g.append_solution(text))
     except Exception:
         pass
 
 import utils
 def _gui_solution_bridge(channel, payload):
+    g = gui_if_ready()
     MODE_MAP = _MODE_META
     ch = str(channel or "").strip().lower()
     if ch not in MODE_MAP:
         txt = payload if isinstance(payload, str) else (payload or {}).get("html", "")
-        if txt:
+        if txt and g:
             try:
-                nova_gui.root.after(0, lambda: nova_gui.show_message("NOVA", txt))
+                g.root.after(0, lambda: g.show_message("NOVA", txt))
             except Exception:
                 pass
         return
@@ -941,17 +1167,17 @@ def _gui_solution_bridge(channel, payload):
         ctx    = (payload or {}).get("ctx") or {}
         action_hint = (payload or {}).get("action")
 
-    if not html: return
+    if not html or not g: return
     name, emoji = MODE_MAP[ch]
 
     def _apply():
         if action_hint == "append":
-            nova_gui.append_solution(html)
+            g.append_solution(html)
         else:
-            if getattr(nova_gui, "_solution_popup", None) and nova_gui._solution_popup.winfo_exists():
-                nova_gui.append_solution(html)
+            if getattr(g, "_solution_popup", None) and g._solution_popup.winfo_exists():
+                g.append_solution(html)
             else:
-                nova_gui.show_solution(mode=name, emoji=emoji, first_answer=html)
+                g.show_solution(mode=name, emoji=emoji, first_answer=html)
 
         primary = actions.get("primary")
         chips   = actions.get("chips") or []
@@ -970,7 +1196,7 @@ def _gui_solution_bridge(channel, payload):
                     CHEM_CTX["force_verbose_once"] = True
                     process_command(original_text or "", is_chemistry_override=True)
                 except Exception as e:
-                    nova_gui.append_solution(f"(Could not expand: {e})")
+                    g.append_solution(f"(Could not expand: {e})")
             primary_cmd = _on_more_detail
 
         if primary and isinstance(primary, dict) and primary.get("id") == "plot_it":
@@ -980,7 +1206,7 @@ def _gui_solution_bridge(channel, payload):
                     from handlers.physics_solver import handle_graph_confirmation
                     handle_graph_confirmation("graph it")
                 except Exception as e:
-                    try: nova_gui.append_solution(f"(Could not plot: {e})")
+                    try: g.append_solution(f"(Could not plot: {e})")
                     except Exception: pass
             primary_cmd = _on_plot_it
 
@@ -995,16 +1221,16 @@ def _gui_solution_bridge(channel, payload):
                         CHEM_CTX["force_verbose_once"] = False
                         handle_chemistry_query(q)
                     except Exception as e:
-                        nova_gui.append_solution(f"(Could not run follow-up: {e})")
+                        g.append_solution(f"(Could not run follow-up: {e})")
                 return _cmd
             chip_cmds.append(_make_cmd())
 
-        if getattr(nova_gui, "_solution_popup", None) and nova_gui._solution_popup.winfo_exists():
+        if getattr(g, "_solution_popup", None) and g._solution_popup.winfo_exists():
             try:
                 if primary_label and primary_cmd:
-                    nova_gui._solution_popup.set_actions(primary_label, primary_cmd, chip_labels, chip_cmds)
+                    g._solution_popup.set_actions(primary_label, primary_cmd, chip_labels, chip_cmds)
                 else:
-                    nova_gui._solution_popup.set_actions(None, None, chip_labels, chip_cmds)
+                    g._solution_popup.set_actions(None, None, chip_labels, chip_cmds)
             except Exception:
                 pass
 
@@ -1016,18 +1242,19 @@ def _gui_solution_bridge(channel, payload):
                     from handlers.physics_solver import handle_graph_confirmation
                     handle_graph_confirmation("graph it")
                 except Exception as e:
-                    try: nova_gui.append_solution(f"(Could not plot: {e})")
+                    try: g.append_solution(f"(Could not plot: {e})")
                     except Exception: pass
             try:
-                if getattr(nova_gui, "_solution_popup", None) and hasattr(nova_gui._solution_popup, "add_inline_button"):
-                    nova_gui._solution_popup.add_inline_button(inline_label, _on_plot_it_inline, anchor_text=anchor_text)
-                elif getattr(nova_gui, "_solution_popup", None) and hasattr(nova_gui._solution_popup, "set_actions"):
-                    nova_gui._solution_popup.set_actions(inline_label, _on_plot_it_inline, [], [])
+                if getattr(g, "_solution_popup", None) and hasattr(g._solution_popup, "add_inline_button"):
+                    g._solution_popup.add_inline_button(inline_label, _on_plot_it_inline, anchor_text=anchor_text)
+                elif getattr(g, "_solution_popup", None) and hasattr(g._solution_popup, "set_actions"):
+                    g._solution_popup.set_actions(inline_label, _on_plot_it_inline, [], [])
             except Exception:
                 pass
 
     try:
-        nova_gui.root.after(0, _apply)
+        if g:
+            g.root.after(0, _apply)
     except Exception:
         pass
 

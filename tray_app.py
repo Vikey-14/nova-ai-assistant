@@ -633,7 +633,7 @@ def build_tray():
                 pass
             os._exit(0)
 
-    help_menu = Menu(MenuItem("Quick Start", on_quick_start))
+    help_menu = Menu(MenuItem("Tray Tip", on_quick_start))
 
     menu = Menu(
         MenuItem("Open Nova", on_open),

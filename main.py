@@ -1,13 +1,16 @@
 # -*- coding: utf-8 -*-
 
 # --- ensure local modules (utils, gui_interface, etc.) are importable ---
-import os, sys, importlib.util
+import os, sys, re, importlib.util
 import socket, subprocess
 from pathlib import Path
 
 def _app_dir():
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)  # PyInstaller EXE
+    try:
+        if getattr(sys, 'frozen', False):  # PyInstaller EXE
+            return os.path.dirname(sys.executable)
+    except Exception:
+        pass
     return os.path.dirname(os.path.abspath(__file__))  # source
 
 APP_DIR = _app_dir()
@@ -70,7 +73,7 @@ from intents import (
     CURIOSITY_MENU
 )
 
-from handlers.memory_commands import extract_name
+from utils import extract_name
 
 
 # ---- first-run Quick Start (tray-driven with local fallback) ----
@@ -95,21 +98,45 @@ def _speak_multilang_async(en: str, hi: str | None = None, de: str | None = None
         daemon=True
     ).start()
 
+# -------------------------------
+# Post-once chat helpers (prevent duplicate bubbles)
+# -------------------------------
+_POSTED_KEYS = set()
+_last_chat_line = [""]
+
+def _safe_show(who: str, text: str):
+    """Insert into chat only if it's not identical to the immediately previous line."""
+    try:
+        if text.strip() == _last_chat_line[0].strip():
+            return
+        _last_chat_line[0] = text
+        nova_gui.show_message(who, text)
+    except Exception:
+        pass
+
+def _show_once(who: str, text: str, key: str | None = None, delay_ms: int = 220):
+    """Schedule a bubble only once per logical key."""
+    if key and key in _POSTED_KEYS:
+        return
+    try:
+        def _do():
+            if key:
+                _POSTED_KEYS.add(key)
+            _safe_show(who, text)
+        nova_gui.root.after(delay_ms, _do)
+    except Exception:
+        if key:
+            _POSTED_KEYS.add(key)
+        _safe_show(who, text)
+
 
 # -------------------------------
 # Speak first, then show helpers (ONLY for setup flow as discussed)
 # -------------------------------
-def _say_then_show(text: str, delay_ms: int = 220):
-    """Speak first, then add Nova bubble after a short delay."""
+def _say_then_show(text: str, delay_ms: int = 220, key: str | None = None):
+    """Speak first, then add Nova bubble after a short delay (dedup by key)."""
     speak_async(text)
-    try:
-        nova_gui.root.after(delay_ms, lambda t=text: nova_gui.show_message("NOVA", t))
-    except Exception:
-        # best-effort fallback
-        try:
-            nova_gui.show_message("NOVA", text)
-        except Exception:
-            pass
+    _show_once("NOVA", text, key=key, delay_ms=delay_ms)
 
 def _bubble_localized_say_first(
     en: str,
@@ -118,6 +145,7 @@ def _bubble_localized_say_first(
     fr: str | None = None,
     es: str | None = None,
     delay_ms: int = 220,
+    key: str | None = None,
 ):
     """
     Speak (multilang) first, then show the chosen localized line after a short delay.
@@ -127,13 +155,7 @@ def _bubble_localized_say_first(
     lang_map = {"en": en, "hi": hi, "de": de, "fr": fr, "es": es}
     chosen = lang_map.get(lang) or en
     _speak_multilang_async(en, hi=hi, de=de, fr=fr, es=es)
-    try:
-        nova_gui.root.after(delay_ms, lambda t=chosen: nova_gui.show_message("NOVA", t))
-    except Exception:
-        try:
-            nova_gui.show_message("NOVA", chosen)
-        except Exception:
-            pass
+    _show_once("NOVA", chosen, key=key, delay_ms=delay_ms)
 
 
 # -------------------------------
@@ -237,7 +259,7 @@ def show_quick_start_dialog(parent: tk.Tk | None = None):
     tk.Label(body, text=t2, font=("Segoe UI", 10), fg="#9aa0c7", bg="#1a103d",
              justify="center", wraplength=width-60).pack(pady=(0, 10))
 
-    # --- Rectangular "Got it!" button (not the rounded canvas style) ---
+    # --- Rectangular "Got it!" button ---
     btn_row = tk.Frame(popup, bg="#1a103d")
     btn_row.pack(pady=(8, 18))
 
@@ -275,7 +297,7 @@ def show_quick_start_dialog(parent: tk.Tk | None = None):
         bg=base, fg="white",
         activebackground=hover, activeforeground="white",
         relief="flat",
-        padx=18, pady=8,             # ≈140×38 visual footprint
+        padx=18, pady=8,
         cursor="hand2",
     )
     got_it.pack()
@@ -542,6 +564,7 @@ def schedule_idle_prompt():
                     de="Ich bin bereit. Sag mir, was du als Nächstes tun möchtest.",
                     fr="Je suis prête. Dis-moi ce que tu veux faire ensuite.",
                     es="Estoy lista. Dime qué quieres hacer a continuación.",
+                    key="idle_standby"
                 )
         finally:
             nxt = threading.Timer(_IDLE_SECONDS, fire)
@@ -572,6 +595,7 @@ def maybe_warn_wrong_language():
         de="Bitte sprich in der ausgewählten Sprache oder sage 'Sprache ändern'.",
         fr="Parle dans la langue sélectionnée ou dis 'changer la langue'.",
         es="Por favor habla en el idioma seleccionado o di 'cambiar idioma'.",
+        key="warn_wrong_lang"
     )
     _LAST_LANG_WARN[0] = now
 
@@ -590,13 +614,7 @@ def _announce_language_set(code: str):
     text, kwargs = lines.get(code, lines["en"])
     # speak first then show (in the selected language)
     _speak_multilang_async(text, **kwargs)
-    try:
-        nova_gui.root.after(220, lambda: nova_gui.show_message("NOVA", text))
-    except Exception:
-        try:
-            nova_gui.show_message("NOVA", text)
-        except Exception:
-            pass
+    _show_once("NOVA", text, key=f"lang_set_{code}", delay_ms=220)
 
 # --- helper to localize the list of language names in the prompt ---
 def _join_with_or(words: list[str], conj: str) -> str:
@@ -636,7 +654,7 @@ def _localized_language_prompt_texts() -> dict[str, str]:
         "en": f"Please tell me the language you'd like to use to communicate with me: {lists['en']}.",
         "hi": f"कृपया बताइए, आप मुझसे किस भाषा में बात करना चाहेंगे: {lists['hi']}?",
         "de": f"Bitte sag mir, in welcher Sprache du mit mir sprechen möchtest: {lists['de']}.",
-        "fr": f"Dis-moi dans quelle langue tu veux sprechen möchtest: {lists['fr']}.",
+        "fr": f"Dis-moi dans quelle langue tu veux parler avec moi : {lists['fr']}.",
         "es": f"Dime en qué idioma quieres hablar conmigo: {lists['es']}.",
     }
 
@@ -654,9 +672,12 @@ def _alias_to_lang(txt: str) -> str | None:
     if not t:
         return None
     for code, names in _LANG_ALIAS.items():
-        if t in (n.casefold() for n in names):
-            return code
-    return None
+        for n in names:
+            # accept "hindi language", "in spanish please", etc.
+            if re.search(rf"\b{re.escape(n.casefold())}\b", t):
+                return code
+    c = guess_language_code(t)
+    return c if c in SUPPORTED_LANGS else None
 
 def pick_language_interactive_fuzzy() -> str:
     """
@@ -667,7 +688,8 @@ def pick_language_interactive_fuzzy() -> str:
     texts = _localized_language_prompt_texts()
     _bubble_localized_say_first(
         texts["en"],
-        hi=texts["hi"], de=texts["de"], fr=texts["fr"], es=texts["es"]
+        hi=texts["hi"], de=texts["de"], fr=texts["fr"], es=texts["es"],
+        key="lang_picker_prompt"
     )
 
     for _ in range(2):
@@ -695,6 +717,7 @@ def pick_language_interactive_fuzzy() -> str:
                 de="Wie kann ich dir heute helfen?",
                 fr="Comment puis-je t'aider aujourd'hui ?",
                 es="¿Cómo puedo ayudarte hoy?",
+                key="greet_help"
             )
             try:
                 _signal_tray_show_tip_once()
@@ -709,7 +732,8 @@ def pick_language_interactive_fuzzy() -> str:
         nova_gui.language_capture_active = True
     except Exception:
         pass
-    _say_then_show("I couldn’t catch that. Please type your language below in the chatbox provided, e.g. English.")
+    _say_then_show("I couldn’t catch that. Please type your language below in the chatbox provided, e.g. English.",
+                   key="lang_type_fallback")
     return ""  # caller shouldn’t rely on return when we enter typed mode
 
 def set_language_persisted(force: bool = False):
@@ -801,7 +825,7 @@ def ask_user_name_on_boot_async():
     if load_from_memory("name"):
         return
     def worker():
-        _say_then_show("May I know your name?")
+        _say_then_show("May I know your name?", key="ask_name")
         for _ in range(2):
             spoken = listen_command()
             if not spoken:
@@ -810,21 +834,21 @@ def ask_user_name_on_boot_async():
             if match:
                 ok, cleaned, _reason = validate_name_strict(match)
                 if not ok:
-                    # English-only (first boot; language not set yet)
-                    _say_then_show("Please enter a valid name: letters only, 2–30 characters, e.g. Alex.")
+                    _say_then_show("Please enter a valid name: letters only, 2–30 characters, e.g. Alex.",
+                                   key="name_invalid")
                     continue
                 save_to_memory("name", cleaned)
                 example_names = {"en": "Alex", "hi": "Ajay", "fr": "Alexandre", "es": "Alejandro", "de": "Alexander"}
                 ex = example_names.get(utils.selected_language or "en", "Alex")
                 line = f"Nice to meet you, {cleaned}! You can later change your name if you'd like by saying something like ‘My name is {ex}’."
-                _say_then_show(line)
+                _say_then_show(line, key="name_ok")
                 _run_language_picker_async()
                 _mark_first_run_complete()
                 return
-        try: nova_gui.name_capture_active = True
+        try: nova_gui.language_capture_active = True
         except Exception: pass
         msg = "I couldn’t catch your name. Please type your name below in the chatbox provided, e.g. Alex."
-        _say_then_show(msg)
+        _say_then_show(msg, key="name_type_fallback")
     threading.Thread(target=worker, daemon=True).start()
 
 def _run_language_picker():
@@ -870,8 +894,8 @@ def _install_chatbox_name_capture_intercept():
         if getattr(nova_gui, "language_capture_active", False):
             code = _alias_to_lang(text)
             if not code:
-                # keep entry text; speak first, then show
-                _say_then_show("Please type a valid language from: English, Hindi, German, French, or Spanish.")
+                _say_then_show("Please type a valid language from: English, Hindi, German, French, or Spanish.",
+                               key="lang_type_prompt_again")
                 return
             # valid language -> save, apply UI tint, clear entry
             try:
@@ -900,6 +924,7 @@ def _install_chatbox_name_capture_intercept():
                 de="Wie kann ich dir heute helfen?",
                 fr="Comment puis-je t'aider aujourd'hui ?",
                 es="¿Cómo puedo ayudarte hoy?",
+                key="greet_help"
             )
 
             # Tip only after ready line
@@ -916,8 +941,8 @@ def _install_chatbox_name_capture_intercept():
         if getattr(nova_gui, "name_capture_active", False):
             ok, cleaned, _reason = validate_name_strict(text)
             if not ok:
-                # keep entry text; speak first, then show
-                _say_then_show("Please enter a valid name: letters only, 2–30 characters, e.g. Alex.")
+                _say_then_show("Please enter a valid name: letters only, 2–30 characters, e.g. Alex.",
+                               key="name_invalid_again")
                 return
             try:
                 save_to_memory("name", cleaned)
@@ -934,7 +959,7 @@ def _install_chatbox_name_capture_intercept():
             example_names = {"en": "Alex", "hi": "Ajay", "fr": "Alexandre", "es": "Alejandro", "de": "Alexander"}
             ex = example_names.get(utils.selected_language or "en", "Alex")
             line = f"Nice to meet you, {cleaned}! You can later change your name by saying ‘My name is {ex}’."
-            _say_then_show(line)
+            _say_then_show(line, key="name_ok_2")
             _run_language_picker_async()
             _mark_first_run_complete()
             schedule_idle_prompt()
@@ -1066,7 +1091,7 @@ if __name__ == "__main__":
     except Exception:
         pass
 
-    # Preferred title (works with tray matching 'nova - ...')
+    # Preferred title
     try:
         nova_gui.root.title("NOVA - AI Assistant")
     except Exception:
@@ -1079,6 +1104,11 @@ if __name__ == "__main__":
 
     # --- Functions that we gate until the GUI is stable ---
     def _greet_known_user():
+        global _GREETED_ONCE
+        if _GREETED_ONCE:
+            return
+        _GREETED_ONCE = True
+
         # Restore language + color FIRST
         code, _ = set_language_persisted(force=False)
         try:
@@ -1086,13 +1116,14 @@ if __name__ == "__main__":
         except Exception:
             pass
 
-        # Greeting (Hindi uses “ए आई” pronunciation)
+        # Greeting (dedup keyed)
         _bubble_localized_say_first(
             "Hello! I’m Nova, your AI assistant. I’m online and ready to help you.",
             hi="नमस्ते! मैं नोवा हूँ, आपकी ए आई सहायक। मैं ऑनलाइन हूँ और मदद के लिए तैयार हूँ।",
             de="Hallo! Ich bin Nova, deine KI-Assistentin. Ich bin online und bereit zu helfen.",
             fr="Bonjour ! Je suis Nova, votre assistante IA. Je suis en ligne et prête à aider.",
             es="¡Hola! Soy Nova, tu asistente de IA. Estoy en línea y lista para ayudar.",
+            key="greet_hello"
         )
         log_interaction("startup", "greet_ready_localized", code)
 
@@ -1102,6 +1133,7 @@ if __name__ == "__main__":
             de="Wie kann ich dir heute helfen?",
             fr="Comment puis-je t'aider aujourd'hui ?",
             es="¿Cómo puedo ayudarte hoy?",
+            key="greet_help"
         )
 
         # Post-greet follow-ups
@@ -1122,8 +1154,13 @@ if __name__ == "__main__":
             logger.error(f"Birthday prompt failed: {e}")
 
     def _greet_first_run():
+        global _GREETED_ONCE
+        if _GREETED_ONCE:
+            return
+        _GREETED_ONCE = True
+
         greet_text = "Hello! I’m Nova, your AI assistant. I’m online and ready to help you."
-        _say_then_show(greet_text)
+        _say_then_show(greet_text, key="greet_hello")
         log_interaction("startup", greet_text, "en")
 
         # Start the name flow a moment after the greeting
@@ -1151,7 +1188,6 @@ if __name__ == "__main__":
 
         _when_gui_visible(_when_shown_then_greet, delay_ms=200)
 
-        # If first boot while hidden, start the name flow when shown (handled above after greet)
     else:
         # Window shows immediately; gate greeting until it settles & animation ready
         if _has_name:

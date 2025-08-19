@@ -1,84 +1,85 @@
-# 🚫 Python cache and build artifacts
+# --- Python bytecode & caches ---
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
-*.egg
-*.egg-info/
-dist/
-build/
-pip-wheel-metadata/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.ipynb_checkpoints/
+.mplcache/
 
-# 💾 Virtual environments
+# --- Virtual environments ---
+.venv*/
+.venv/
 venv/
 env/
 ENV/
-.venv/
-.venv*/          # sometimes VS Code makes .venv1, .venv2, etc.
 
-# ⚙️ Editor and IDE settings
+# --- Build / packaging outputs ---
+build/
+dist/
+*.egg-info/
+pip-wheel-metadata/
+
+# Keep the PyInstaller spec for reproducible builds
+*.spec
+!NOVA.spec
+
+# --- Editors / IDEs ---
 .vscode/
 .idea/
 *.iml
 
-# 🗒️ Common dev caches
-.mypy_cache/
-.ruff_cache/
-.ipynb_checkpoints/
-
-# 🗑️ System files (Windows/macOS)
+# --- OS cruft ---
 .DS_Store
 Thumbs.db
 ehthumbs.db
 desktop.ini
 
-# 🔐 Sensitive data
+# --- Secrets & local config ---
 .env
 .env.*
 *.key
 *.pem
 .python-version
 
-# 🧪 Test artifacts
+# --- Tests & coverage artifacts ---
 htmlcov/
 .coverage
 .coverage.*
 coverage.xml
 *.cover
-*.pytest_cache/
 .nova_logs/
 
-# 📦 Application data / system cache
+# --- App/runtime logs & caches ---
 *.log
+nova_logs.txt
+interaction_log.txt
+interaction_log.csv
+
+# --- App data / binaries / temp ---
 *.bin
 *.blb
 *.db
 *.db-journal
 AppData/
 
-# 🧠 Ignore generated memory and note files
+# --- Project-specific generated files ---
 notes/
 reminders/
 nova_memory.json
 nova_notes.json
 
-# 🖼️ Generated image/snapshot area (keep PNGs tracked elsewhere)
+# --- Assets: keep small curated files, ignore bulk dumps ---
 nova_face_assets/
+# (If you keep only a few PNGs, uncomment below and list what to keep)
+# !nova_face_assets/README.md
+# !nova_face_assets/*.png
 
-# 📜 Packaging / bundle outputs
-nova_setup/
-*.spec
-nova.exe
+# --- Large data you don't want in source zips/repos ---
+datasets/
+models/
 
-# 🧾 Project-specific logs (your app writes these as .txt/.csv)
-interaction_log.txt
-interaction_log.csv
-nova_logs.txt
-
-# 🧹 Misc temp/backup files
-*~
-*.tmp
-*.bak
-*.orig
-*.rej
-nohup.out
+# --- Keep essential small config/assets needed at runtime ---
+!poem_bank.json

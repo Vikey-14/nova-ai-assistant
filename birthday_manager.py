@@ -5,8 +5,8 @@ import datetime
 import threading
 import tkinter as tk
 from tkinter import messagebox
-from PIL import Image, ImageTk
-import os, random, time, math
+from PIL import Image, ImageTk, ImageDraw
+import os, random, time, math, re
 
 # pygame is optional at runtime
 try:
@@ -17,6 +17,7 @@ except Exception:
 from memory_handler import load_from_memory, save_to_memory
 from birthday_present import get_birthday_poem
 from utils import pkg_path
+import utils  # for selected_language, logger, settings
 
 # -------------------------------
 # TK helpers (keep all UI on main thread + no corner flash)
@@ -73,8 +74,6 @@ def _after_greeting(run_fn, *, extra_delay_ms: int = 1000, poll_ms: int = 150, t
     Calls run_fn after the main Tk window is visible (not withdrawn/iconic)
     and waits a further extra_delay_ms so the "Hello… how can I help you today?"
     greeting can print first.
-
-    If we never detect visibility within timeout_ms, we still run (best-effort).
     """
     start = time.time()
 
@@ -83,7 +82,6 @@ def _after_greeting(run_fn, *, extra_delay_ms: int = 1000, poll_ms: int = 150, t
         if not (r and r.winfo_exists()):
             return False
         try:
-            # mapped and not minimized/withdrawn
             st = r.state()
             return r.winfo_viewable() and st not in ("withdrawn", "iconic")
         except Exception:
@@ -94,7 +92,6 @@ def _after_greeting(run_fn, *, extra_delay_ms: int = 1000, poll_ms: int = 150, t
             _tk_after(extra_delay_ms, run_fn)
             return
         if (time.time() - start) * 1000 >= timeout_ms:
-            # fail-safe: don't block forever
             _tk_after(extra_delay_ms, run_fn)
             return
         _tk_after(poll_ms, _poll)
@@ -123,6 +120,166 @@ def _stop_music():
         pass
 
 # -------------------------------
+# Confetti helpers
+# -------------------------------
+def _confetti_burst_and_close(popup: tk.Toplevel, duration_ms: int = 700, count: int = 120):
+    """Small burst used by the ask-birthday popup."""
+    try:
+        popup.update_idletasks()
+        w, h = popup.winfo_width(), popup.winfo_height()
+        overlay = tk.Canvas(popup, width=w, height=h, bg="#1a103d", highlightthickness=0, bd=0)
+        overlay.place(x=0, y=0)
+
+        dots = []
+        colors = ["#ffd1dc", "#ffe6a7", "#b5e9ff", "#c8ffe0", "#fffacd", "#ffccff", "#b0e0e6"]
+        for _ in range(count):
+            x = w/2; y = h/3
+            rdot = random.randint(2, 4)
+            dot = overlay.create_oval(x, y, x+rdot, y+rdot, fill=random.choice(colors), outline="")
+            vx = random.uniform(-4.0, 4.0)
+            vy = random.uniform(-6.0, -2.0)
+            dots.append([dot, vx, vy, 0])
+
+        start = int(time.time() * 1000)
+
+        def step():
+            now = int(time.time() * 1000)
+            alive = now - start < duration_ms
+            for item in dots:
+                dot, vx, vy, age = item
+                vy += 0.22
+                overlay.move(dot, vx, vy)
+                item[2] = vy; item[3] = age + 1
+            if alive and popup.winfo_exists():
+                popup.after(16, step)
+            else:
+                try: popup.destroy()
+                except Exception: pass
+
+        step()
+    except Exception:
+        try: popup.destroy()
+        except Exception: pass
+
+def _mega_confetti_on(popup: tk.Toplevel, duration_ms: int = 1200, count: int = 520):
+    """Large burst used when closing both the celebration and poem popups."""
+    if not popup or not popup.winfo_exists():
+        return
+    try:
+        popup.update_idletasks()
+        w, h = popup.winfo_width(), popup.winfo_height()
+        overlay = tk.Canvas(popup, width=w, height=h, bg="#1a103d", highlightthickness=0, bd=0)
+        overlay.place(x=0, y=0)
+
+        dots = []
+        colors = ["#ffd1dc", "#ffe6a7", "#b5e9ff", "#c8ffe0", "#fffacd", "#ffccff", "#b0e0e6"]
+        for _ in range(count):
+            x = w/2; y = h/3
+            rdot = random.randint(2, 4)
+            dot = overlay.create_oval(x, y, x+rdot, y+rdot, fill=random.choice(colors), outline="")
+            vx = random.uniform(-5.0, 5.0)
+            vy = random.uniform(-7.0, -3.0)
+            dots.append([dot, vx, vy, 0])
+
+        start = int(time.time() * 1000)
+
+        def step():
+            now = int(time.time() * 1000)
+            alive = now - start < duration_ms
+            for item in dots:
+                dot, vx, vy, age = item
+                vy += 0.20
+                overlay.move(dot, vx, vy)
+                item[2] = vy; item[3] = age + 1
+            if alive and popup.winfo_exists():
+                popup.after(16, step)
+            else:
+                try: overlay.destroy()
+                except Exception: pass
+
+        step()
+    except Exception:
+        pass
+
+# -------------------------------
+# Starry canvas + image helpers
+# -------------------------------
+def _make_starry_canvas(win: tk.Toplevel, width: int, height: int):
+    """Full-window starry canvas."""
+    cvs = tk.Canvas(win, width=width, height=height, bg="#1a103d", highlightthickness=0, bd=0)
+    cvs.pack(fill="both", expand=False)
+    star_layers = {1: [], 2: [], 3: []}
+    for layer in star_layers:
+        for _ in range(28 if layer == 1 else 18):
+            x = random.randint(0, width); y = random.randint(0, height)
+            size = layer  # 1..3
+            star = cvs.create_oval(x, y, x + size, y + size, fill="#c9cfff", outline="")
+            star_layers[layer].append(star)
+    return cvs, star_layers
+
+def _animate_stars_and_orbit(cvs: tk.Canvas, layers: dict, face_id, cx: int, cy: int, r_orbit: int):
+    """Drift stars and orbit the face image."""
+    def _anim():
+        _anim.t = getattr(_anim, "t", 0) + 2
+        # drift stars
+        w = int(cvs.winfo_width() or 0) or int(cvs["width"])
+        for layer, stars in layers.items():
+            dx = 0.25 * layer
+            for s in stars:
+                cvs.move(s, dx, 0)
+                x0, y0, x1, y1 = cvs.coords(s)
+                if x0 > w:
+                    cvs.move(s, -w - (x1 - x0), 0)
+        # tiny orbit
+        if face_id:
+            rad = math.radians(_anim.t)
+            cvs.coords(face_id, cx + r_orbit * math.cos(rad), cy + r_orbit * math.sin(rad))
+        try:
+            cvs.after(50, _anim)
+        except Exception:
+            pass
+    _anim()
+
+def _circular_photo(asset_name: str, size_xy: tuple[int, int]) -> ImageTk.PhotoImage:
+    """Load an image and return a circular-masked PhotoImage (to avoid square backdrop)."""
+    img = Image.open(str(pkg_path("assets", asset_name))).convert("RGBA").resize(size_xy, Image.LANCZOS)
+    w, h = img.size
+    mask = Image.new("L", (w, h), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.ellipse((0, 0, w, h), fill=255)
+    img.putalpha(mask)
+    return ImageTk.PhotoImage(img)
+
+# -------------------------------
+# Date normalization & aliases
+# -------------------------------
+_MONTH_ALIASES = {
+    "jan": "january", "jan.": "january", "january": "january",
+    "feb": "february", "feb.": "february", "february": "february",
+    "mar": "march", "mar.": "march", "march": "march",
+    "apr": "april", "apr.": "april", "april": "april",
+    "may": "may",
+    "jun": "june", "jun.": "june", "june": "june",
+    "jul": "july", "jul.": "july", "july": "july",
+    "aug": "august", "aug.": "august", "august": "august",
+    "sep": "september", "sep.": "september", "sept": "september", "sept.": "september", "september": "september",
+    "oct": "october", "oct.": "october", "october": "october",
+    "nov": "november", "nov.": "november", "november": "november",
+    "dec": "december", "dec.": "december", "december": "december",
+}
+
+def _normalize_date_text(s: str) -> str:
+    """Lowercase, remove ordinals/fillers, normalize month aliases, collapse punctuation/spaces."""
+    s0 = (s or "").strip().lower()
+    s0 = s0.replace(",", " ").replace("/", " ").replace("-", " ")
+    s0 = re.sub(r"\b(\d{1,2})(st|nd|rd|th)\b", r"\1", s0)
+    s0 = re.sub(r"\bof\b", " ", s0)
+    for alias, canon in _MONTH_ALIASES.items():
+        s0 = re.sub(rf"\b{re.escape(alias)}\b", canon, s0)
+    s0 = re.sub(r"\s+", " ", s0).strip()
+    return s0
+
+# -------------------------------
 # Boot check and deferred prompts (after greeting)
 # -------------------------------
 def check_and_prompt_birthday():
@@ -132,8 +289,7 @@ def check_and_prompt_birthday():
     settings = load_settings()
     settings["boot_count"] = settings.get("boot_count", 0) + 1
     boot = settings["boot_count"]
-    # Persist the increment immediately so boot milestones (3/10) are reached.
-    save_settings(settings)
+    save_settings(settings)  # persist increment
 
     birthday = load_from_memory("birthday")  # "dd-mm"
     asked_before = settings.get("birthday_asked", False)
@@ -159,7 +315,7 @@ def check_and_prompt_birthday():
         except Exception:
             bday_this_year = None
 
-        # Reset once-per-day marker (so same-day popup doesn’t replay on the same day)
+        # Reset once-per-day marker so same-day popup doesn’t replay
         flags_day = settings.get("birthday_flags_day", "")
         if flags_day != today_str:
             settings["birthday_flags_day"] = today_str
@@ -172,46 +328,40 @@ def check_and_prompt_birthday():
                 def _celebrate_now():
                     _tk_after(0, show_birthday_celebration_popup, False)  # belated=False
 
-                # If user had a pending same-day surprise from last session → show now
+                # Same-day surprise carried from previous session
                 if show_next_boot and show_next_boot_date == today_str:
                     logger.info("🎂 Pending same-day celebration from last session → showing after greeting")
-                    _after_greeting(_celebrate_now)
+                    _after_greeting(_celebrate_now, extra_delay_ms=10000)
                     settings["birthday_show_next_boot"] = False
                     settings["birthday_show_next_boot_date"] = ""
                     settings["birthday_celebration_scheduled"] = True
                     settings["birthday_celebrated_year"] = this_year
                     save_settings(settings)
 
-                # Normal day-of logic (when saved earlier; no 5-minute timer)
+                # Normal day-of logic (earlier-saved birthdays)
                 elif not settings.get("birthday_celebration_scheduled", False):
-                    logger.info("🎂 Birthday today — showing celebration after greeting (no timer for earlier-saved birthdays)")
-                    _after_greeting(_celebrate_now)
+                    logger.info("🎂 Birthday today — showing celebration after greeting (10s delay)")
+                    _after_greeting(_celebrate_now, extra_delay_ms=10000)
                     settings["birthday_celebration_scheduled"] = True
                     settings["birthday_celebrated_year"] = this_year
                     save_settings(settings)
 
             # ---- CASE B: Belated window (1–7 days after birthday) ----
             else:
-                # If we already celebrated this year (either normal or belated), skip
-                if celebrated_year == this_year:
-                    pass
-                else:
-                    # only look back at this year's birthday
-                    if today_date > bday_this_year:
-                        delta = (today_date - bday_this_year).days
-                        if 1 <= delta <= 7:
-                            def _celebrate_belated():
-                                _tk_after(0, show_birthday_celebration_popup, True)  # belated=True
-                            logger.info(f"🎈 Belated birthday window ({delta} days) — showing belated wish after greeting")
-                            _after_greeting(_celebrate_belated)
-                            settings["birthday_celebration_scheduled"] = True
-                            settings["birthday_celebrated_year"] = this_year
-                            # clear any stale “same-day” carry-over flags
-                            settings["birthday_show_next_boot"] = False
-                            settings["birthday_show_next_boot_date"] = ""
-                            save_settings(settings)
+                if celebrated_year != this_year and today_date > bday_this_year:
+                    delta = (today_date - bday_this_year).days
+                    if 1 <= delta <= 7:
+                        def _celebrate_belated():
+                            _tk_after(0, show_birthday_celebration_popup, True)  # belated=True
+                        logger.info(f"🎈 Belated birthday window ({delta} days) — showing after greeting (10s delay)")
+                        _after_greeting(_celebrate_belated, extra_delay_ms=10000)
+                        settings["birthday_celebration_scheduled"] = True
+                        settings["birthday_celebrated_year"] = this_year
+                        settings["birthday_show_next_boot"] = False
+                        settings["birthday_show_next_boot_date"] = ""
+                        save_settings(settings)
 
-    # --- Ask for birthday on boot #3 and #10, after greeting ---
+    # --- Ask for birthday on boot #3 and #10, after greeting (10s delay) ---
     if not birthday:
         def _ask_now_first():
             _speak_multilang(
@@ -233,21 +383,26 @@ def check_and_prompt_birthday():
             )
             _tk_after(0, show_birthday_input_popup)
 
+        settings = utils.load_settings()
+        boot = settings.get("boot_count", 0)
+        asked_before = settings.get("birthday_asked", False)
+        final_prompt_shown = settings.get("birthday_final_prompt_shown", False)
+
         if boot == 3 and not asked_before:
-            _after_greeting(_ask_now_first)
+            _after_greeting(_ask_now_first, extra_delay_ms=10000)
             settings["birthday_asked"] = True
-            save_settings(settings)
+            utils.save_settings(settings)
 
         elif boot == 10 and not final_prompt_shown:
-            _after_greeting(_ask_now_final)
+            _after_greeting(_ask_now_final, extra_delay_ms=10000)
             settings["birthday_final_prompt_shown"] = True
-            save_settings(settings)
+            utils.save_settings(settings)
 
 # -------------------------------
-# Birthday entry popup (tip-style header)
+# Birthday entry popup — UPDATED: full starfield + lower Nova logo
 # -------------------------------
 def show_birthday_input_popup():
-    from utils import load_settings, save_settings, logger
+    from utils import load_settings, save_settings, logger, _speak_multilang
     import dateparser
 
     r = _root()
@@ -257,6 +412,8 @@ def show_birthday_input_popup():
     # Soft chime (best effort)
     _play_music("birthday_chime.mp3", loop=False)
 
+    # --- Window ---
+    W, H = 480, 360
     popup = tk.Toplevel(master=r)
     popup.title("🎂 What's Your Birthdate?")
     popup.configure(bg="#1a103d")
@@ -265,166 +422,186 @@ def show_birthday_input_popup():
         popup.attributes("-topmost", True)
     except Exception:
         pass
+    popup.geometry(f"{W}x{H}")
 
-    # Size first (prevents geometry jitter), then we'll center
-    popup.geometry("480x360")
+    # === FULL-WINDOW starfield (was header-only) ===
+    canvas, layers = _make_starry_canvas(popup, W, H)
 
-    # ----- starry header like the tip -----
-    header_h = 140
-    canvas = tk.Canvas(popup, width=480, height=header_h, bg="#1a103d", highlightthickness=0, bd=0)
-    canvas.pack()
-
-    star_layers = {1: [], 2: [], 3: []}
-    for layer in star_layers:
-        for _ in range(12):
-            x = random.randint(0, 480)
-            y = random.randint(0, header_h)
-            size = layer  # 1..3
-            star = canvas.create_oval(x, y, x + size, y + size, fill="#c9cfff", outline="")
-            star_layers[layer].append(star)
-
-    # glow face (tip-style) with tiny orbit
-    logo_id = None
+    # === Nova logo a little lower (y=96) with gentle orbit ===
+    face_id = None
     try:
         img_path = str(pkg_path("assets", "nova_face_glow.png"))
         img = Image.open(img_path).resize((84, 84))
-        logo = ImageTk.PhotoImage(img)
-        logo_id = canvas.create_image(240, header_h // 2, image=logo)
-        popup._logo_ref = logo  # keep reference
+        face = ImageTk.PhotoImage(img)
+        face_id = canvas.create_image(W // 2, 96, image=face)
+        popup._ask_face_ref = face  # keep ref
     except Exception:
         pass
+    _animate_stars_and_orbit(canvas, layers, face_id, W // 2, 96, 8)
 
-    def animate():
-        animate.t = getattr(animate, "t", 0) + 2
-        # drift stars
-        for layer, stars in star_layers.items():
-            dx = 0.25 * layer
-            for s in stars:
-                canvas.move(s, dx, 0)
-                x0, y0, x1, y1 = canvas.coords(s)
-                if x0 > 480:
-                    canvas.move(s, -480 - (x1 - x0), 0)
-        # tiny orbit for the logo
-        if logo_id:
-            r_orb, cx, cy = 10, 240, header_h // 2
-            rad = math.radians(animate.t)
-            canvas.coords(logo_id, cx + r_orb * math.cos(rad), cy + r_orb * math.sin(rad))
-        try:
-            popup.after(50, animate)
-        except Exception:
-            pass
-    animate()
-
-    # ----- form -----
-    tk.Label(
-        popup, text="When is your birthday?",
-        font=("Segoe UI", 12, "bold"), fg="#dcdcff", bg="#1a103d"
-    ).pack(pady=(12, 4))
+    # --- Form content on the canvas so stars fill the whole popup ---
+    canvas.create_text(
+        W // 2, 166,
+        text="When is your birthday?",
+        font=("Segoe UI", 12, "bold"),
+        fill="#dcdcff",
+        width=W - 40,
+        justify="center"
+    )
 
     entry = tk.Entry(popup, font=("Segoe UI", 12), justify="center")
-    entry.pack(pady=4)
+    canvas.create_window(W // 2, 198, window=entry, width=264)
     entry.focus_set()
 
-    tk.Label(
+    hint = tk.Label(
         popup, text="e.g., August 5 or 5th Aug",
         font=("Segoe UI", 10), fg="#9aa0c7", bg="#1a103d"
-    ).pack(pady=(2, 10))
+    )
+    canvas.create_window(W // 2, 226, window=hint)
 
     # button styles (exact palette + hover)
     def style_indigo(btn):
-        # primary indigo (#5a4fcf) → hover #b084ff
         btn.configure(bg="#5a4fcf", fg="white", relief="flat",
-                      padx=14, pady=7, cursor="hand2", font=("Segoe UI", 10, "bold"), activeforeground="white")
+                      padx=14, pady=7, cursor="hand2",
+                      font=("Segoe UI", 10, "bold"), activeforeground="white")
         btn.bind("<Enter>", lambda e: btn.config(bg="#b084ff"))
         btn.bind("<Leave>", lambda e: btn.config(bg="#5a4fcf"))
 
     def style_raspberry(btn):
-        # raspberry/rose (#b84b5f) → hover #e07b8d
         btn.configure(bg="#b84b5f", fg="white", relief="flat",
-                      padx=14, pady=7, cursor="hand2", font=("Segoe UI", 10), activeforeground="white")
+                      padx=14, pady=7, cursor="hand2",
+                      font=("Segoe UI", 10), activeforeground="white")
         btn.bind("<Enter>", lambda e: btn.config(bg="#e07b8d"))
         btn.bind("<Leave>", lambda e: btn.config(bg="#b84b5f"))
 
     def save_birthday():
+        import dateparser
         date_text = entry.get().strip()
+        # normalize & parse with DMY bias
+        norm = _normalize_date_text(date_text)
         parsed = None
         try:
-            parsed = dateparser.parse(date_text)
+            parsed = dateparser.parse(norm, settings={"DATE_ORDER": "DMY"})
         except Exception:
             parsed = None
         if parsed:
             formatted = parsed.strftime("%d-%m")
             save_to_memory("birthday", formatted)
-            s = load_settings()
+            s = utils.load_settings()
             s["birthday_asked"] = True
             s["birthday_final_prompt_shown"] = True
             # reset day-of orchestration so today's celebration logic can run
             s["birthday_celebration_scheduled"] = False
-            save_settings(s)
+            utils.save_settings(s)
 
-            # NEW: log the save + same-day scheduling breadcrumbs
-            logger.info(f"🎂 Birthday saved as {formatted}")
+            # log & carry-over for same-day
+            utils.logger.info(f"🎂 Birthday saved as {formatted}")
             if formatted == datetime.datetime.now().strftime("%d-%m"):
-                logger.info("Scheduling 5-minute same-session surprise + next-boot carry-over")
+                utils.logger.info("Scheduling 5-minute same-session surprise + next-boot carry-over")
 
-            try:
-                messagebox.showinfo("🎉 Saved", "Got it. Nova has stored your birthday.")
-            except Exception:
-                pass
-            try:
-                popup.destroy()
-            except Exception:
-                pass
+            # Close with confetti (no 'Saved!' dialog)
+            _confetti_burst_and_close(popup)
 
             # Same-session handling: if the saved date is today, schedule 5-minute surprise
             if formatted == datetime.datetime.now().strftime("%d-%m"):
-                # also persist a "show on next boot" fallback in case the app closes before 5 minutes
-                s2 = load_settings()
+                s2 = utils.load_settings()
                 s2["birthday_show_next_boot"] = True
                 s2["birthday_show_next_boot_date"] = formatted
-                save_settings(s2)
+                utils.save_settings(s2)
 
                 def _fire():
                     _tk_after(0, show_birthday_celebration_popup, False)  # belated=False
                 t = threading.Timer(300, _fire)  # 5 minutes
                 t.daemon = True
                 t.start()
-
         else:
+            # ❌ Invalid date → speak localized prompt and keep popup open
+            utils._speak_multilang(
+                "Please enter a valid date, for example 'August 5' or '5 Aug'.",
+                hi="कृपया सही तारीख लिखें, जैसे '5 अगस्त' या 'August 5'.",
+                de="Bitte gib ein gültiges Datum ein, z. B. „5 Aug“ oder „5. August“.",
+                fr="Veuillez entrer une date valide, par ex. « 5 août » ou « 5 Aug ». ",
+                es="Introduce una fecha válida, por ejemplo « 5 de agosto » o « 5 Aug »."
+            )
             try:
-                messagebox.showerror("Oops!", "Couldn't understand the date. Try something like 'August 5'.")
+                entry.selection_range(0, tk.END)
+                entry.focus_set()
+                entry.configure(highlightthickness=1, highlightbackground="#b84b5f")
+                popup.after(900, lambda: entry.configure(highlightthickness=0))
             except Exception:
                 pass
 
     def remind_later():
-        s = load_settings()
+        s = utils.load_settings()
+        # If this is before boot 10, snooze to final ask; on/after 10th, never ask again.
+        boot = s.get("boot_count", 0)
         s["birthday_asked"] = True
-        s["birthday_final_prompt_shown"] = True
-        save_settings(s)
-        try:
-            popup.destroy()
-        except Exception:
-            pass
+        if boot >= 10:
+            s["birthday_final_prompt_shown"] = True
+        utils.save_settings(s)
+        # Close with confetti
+        _confetti_burst_and_close(popup)
 
-    row = tk.Frame(popup, bg="#1a103d"); row.pack(pady=(6, 12))
-    btn_save  = tk.Button(row, text="🎂 Save Birthday", command=save_birthday)
-    btn_later = tk.Button(row, text="Remind Me Later", command=remind_later)
-    btn_save.pack(side="left", padx=8); btn_later.pack(side="left", padx=8)
-
-    # Save = raspberry, Remind = indigo
+    # Put buttons onto the canvas so bg remains starry
+    btn_save  = tk.Button(popup, text="🎂 Save Birthday", command=save_birthday)
+    btn_later = tk.Button(popup, text="Remind Me Later", command=remind_later)
     style_raspberry(btn_save)
     style_indigo(btn_later)
+    canvas.create_window(W // 2 - 95, H - 34, window=btn_save)
+    canvas.create_window(W // 2 + 95, H - 34, window=btn_later)
 
     # shortcuts + close behavior
     popup.bind("<Return>", lambda e: save_birthday())  # Enter = Save
     popup.bind("<Escape>", lambda e: remind_later())   # Esc   = Remind
-    popup.protocol("WM_DELETE_WINDOW", remind_later)
+    popup.protocol("WM_DELETE_WINDOW", remind_later)   # X = Remind (with confetti)
 
     _center_and_show(popup)
 
 # -------------------------------
-# Birthday celebration popup
+# Celebration popup — language-aware TTS timing, music starts with popup
 # -------------------------------
+
+# Per-language timing (ported from your demo)
+def _cfg(use_estimate, mpw, min_ms, cushion, early_shift=0, hard_gate=0, extra_hold=0):
+    return dict(
+        use_estimate=use_estimate,
+        mpw=mpw, min_ms=min_ms, cushion=cushion,
+        early_shift=early_shift, hard_gate=hard_gate, extra_hold=extra_hold
+    )
+
+_TIMING = {
+    "today": {
+        "en": _cfg(True, 300, 3800, 200, 0, 3800, 0),
+        "hi": _cfg(True, 440, 6000, 320, 0, 6000, 150),
+        "de": _cfg(True, 340, 4600, 240, 0, 4600, 1100),
+        "fr": _cfg(True, 300, 3800, 200, 0, 3800, 1100),
+        "es": _cfg(True, 280, 3600, 180, 0, 3600, 800),
+    },
+    "belated": {
+        "en": _cfg(True, 260, 3150, 120, 0, 0, 0),
+        "hi": _cfg(True, 400, 5200, 280, 0, 5200, 260),
+        "de": _cfg(True, 300, 4000, 180, 0, 4000, 800),
+        "fr": _cfg(True, 260, 3300, 140, 0, 0, 0),
+        "es": _cfg(True, 260, 3200, 140, 0, 0, 1200),
+    }
+}
+
+def _estimate_ms(line: str, mpw: int, floor_ms: int, cushion_ms: int) -> int:
+    words = max(1, len((line or "").split()))
+    return max(floor_ms, words * mpw + cushion_ms)
+
+def _delay_for_line(kind: str, lang: str, line: str) -> int:
+    cfgs = _TIMING.get(kind, _TIMING["today"])
+    cfg  = cfgs.get(lang, cfgs["en"])
+    if not cfg["use_estimate"]:
+        return max(0, cfg.get("extra_hold", 0))
+    base = _estimate_ms(line, cfg["mpw"], cfg["min_ms"], cfg["cushion"])
+    delay = max(0, base - max(0, cfg["early_shift"]))
+    if cfg.get("hard_gate", 0):
+        delay = max(delay, cfg["hard_gate"])
+    delay += max(0, cfg.get("extra_hold", 0))
+    return delay
+
 def show_birthday_celebration_popup(belated: bool = False):
     from utils import _speak_multilang, load_settings, save_settings, logger
 
@@ -432,94 +609,10 @@ def show_birthday_celebration_popup(belated: bool = False):
     if not r:
         return
 
-    # Mark that this year's celebration has happened (normal OR belated)
-    try:
-        s = load_settings()
-        s["birthday_show_next_boot"] = False
-        s["birthday_show_next_boot_date"] = ""
-        s["birthday_celebration_scheduled"] = True
-        s["birthday_celebrated_year"] = datetime.date.today().year
-        save_settings(s)
-    except Exception:
-        pass
-
-    _play_music("pokemon_center_birthday.mp3", loop=True)
-
-    popup = tk.Toplevel(master=r)
-    popup.title("🎉 Happy Belated Birthday!" if belated else "🎉 Happy Birthday!")
-    popup.configure(bg="#1a103d")
-    popup.resizable(False, False)
-    try:
-        popup.attributes("-topmost", True)
-    except Exception:
-        pass
-
-    popup.geometry("500x420")
-
-    header_h = 160
-    canvas = tk.Canvas(popup, width=500, height=header_h, bg="#1a103d", highlightthickness=0, bd=0)
-    canvas.pack()
-
-    # starry header
-    star_layers = {1: [], 2: [], 3: []}
-    for layer in star_layers:
-        for _ in range(12):
-            x = random.randint(0, 500); y = random.randint(0, header_h)
-            sdot = layer
-            star = canvas.create_oval(x, y, x+sdot, y+sdot, fill="#c9cfff", outline="")
-            star_layers[layer].append(star)
-
-    # birthday face (kept, not the glow one) with gentle orbit
-    logo_id = None
-    try:
-        img = Image.open(str(pkg_path("assets", "nova_birthday_face.png"))).resize((84, 84))
-        logo = ImageTk.PhotoImage(img)
-        logo_id = canvas.create_image(250, header_h//2, image=logo)
-        popup._logo_ref = logo
-    except Exception:
-        pass
-
-    # ambient confetti
-    confetti = []
-    for _ in range(28):
-        x = random.randint(0, 500); y = random.randint(0, header_h)
-        rdot = random.randint(2, 4)
-        c = canvas.create_oval(x, y, x+rdot, y+rdot,
-                               fill=random.choice(["#ffccff", "#fffacd", "#b0e0e6"]),
-                               outline="")
-        confetti.append(c)
-
-    def _anim():
-        _anim.t = getattr(_anim, "t", 0) + 2
-        # stars drift
-        for layer, stars in star_layers.items():
-            dx = 0.25 * layer
-            for s in stars:
-                canvas.move(s, dx, 0)
-                x0, y0, x1, y1 = canvas.coords(s)
-                if x0 > 500:
-                    canvas.move(s, -500 - (x1 - x0), 0)
-        # face orbit
-        if logo_id:
-            r_orb, cx, cy = 10, 250, header_h//2
-            rad = math.radians(_anim.t)
-            canvas.coords(logo_id, cx + r_orb*math.cos(rad), cy + r_orb*math.sin(rad))
-        # ambient confetti fall
-        for d in confetti:
-            canvas.move(d, 0, 1.2)
-            x0, y0, x1, y1 = canvas.coords(d)
-            if y0 > header_h:
-                canvas.move(d, 0, -header_h - (y1 - y0))
-        try:
-            popup.after(50, _anim)
-        except Exception:
-            pass
-    _anim()
-
-    # message
+    # Choose localized voice lines (we'll speak these first)
     name = load_from_memory("name") or "Trainer"
     if belated:
-        heading = f"Happy Belated Birthday, {name}! 🎉"
+        heading_tpl = "Happy Belated Birthday, {name}! 🎉"
         voice = dict(
             en="A little late, but with all my heart — Happy Belated Birthday!",
             hi="थोड़ा देर से सही, दिल से — जन्मदिन की ढेर सारी शुभकामनाएँ!",
@@ -527,8 +620,9 @@ def show_birthday_celebration_popup(belated: bool = False):
             fr="Avec un peu de retard, mais de tout cœur — joyeux anniversaire en retard !",
             es="Un poco tarde, ¡pero con todo mi corazón! ¡Feliz cumpleaños atrasado!"
         )
+        kind = "belated"
     else:
-        heading = f"Happy Birthday, {name}! 🎉"
+        heading_tpl = "Happy Birthday, {name}! 🎉"
         voice = dict(
             en="Surprise! It’s your special day. Happy Birthday!",
             hi="सरप्राइज़! आज आपका जन्मदिन है। जन्मदिन की शुभकामनाएँ!",
@@ -536,94 +630,224 @@ def show_birthday_celebration_popup(belated: bool = False):
             fr="Surprise ! C'est ton anniversaire. Joyeux anniversaire !",
             es="¡Sorpresa! Hoy es tu cumpleaños. ¡Feliz cumpleaños!"
         )
+        kind = "today"
 
-    tk.Label(popup, text=heading, font=("Segoe UI", 13, "bold"),
-             fg="#e8e6ff", bg="#1a103d", justify="center", wraplength=460).pack(pady=(10, 12))
-
-    # button styles (exact palette + hover)
-    def style_indigo(btn):
-        btn.configure(bg="#5a4fcf", fg="white", relief="flat",
-                      padx=14, pady=7, cursor="hand2", font=("Segoe UI", 10, "bold"), activeforeground="white")
-        btn.bind("<Enter>", lambda e: btn.config(bg="#b084ff"))
-        btn.bind("<Leave>", lambda e: btn.config(bg="#5a4fcf"))
-
-    def style_raspberry(btn):
-        btn.configure(bg="#b84b5f", fg="white", relief="flat",
-                      padx=14, pady=7, cursor="hand2", font=("Segoe UI", 10), activeforeground="white")
-        btn.bind("<Enter>", lambda e: btn.config(bg="#e07b8d"))
-        btn.bind("<Leave>", lambda e: btn.config(bg="#b84b5f"))
-
-    # actions
-    def reveal_surprise():
-        poem = get_birthday_poem(name=(load_from_memory("name") or "Trainer"))
-        try: messagebox.showinfo("🎁 Your Birthday Poem", poem)
-        except Exception: pass
-
-    # Thanks burst (keeps popup/music)
-    def thanks_burst():
-        burst = []
-        for _ in range(36):
-            x = 250; y = header_h//2
-            rdot = random.randint(2, 4)
-            dot = canvas.create_oval(x, y, x+rdot, y+rdot,
-                                     fill=random.choice(["#ffd1dc","#ffe6a7","#b5e9ff","#c8ffe0"]),
-                                     outline="")
-            vx = random.uniform(-3.2, 3.2)
-            vy = random.uniform(-2.0, -4.0)
-            burst.append([dot, vx, vy, 0])
-        def step():
-            alive = False
-            for item in burst:
-                dot, vx, vy, age = item
-                vy += 0.18
-                canvas.move(dot, vx, vy)
-                item[2] = vy; item[3] = age + 1
-                if age < 45:
-                    alive = True
-                else:
-                    try: canvas.delete(dot)
-                    except Exception: pass
-            if alive and popup.winfo_exists():
-                popup.after(16, step)
-        step()
-
-    def on_thanks():
-        thanks_btn.config(state="disabled")
-        thanks_burst()
-        def fade_out(a=1.0):
-            a -= 0.15
-            if a <= 0:
-                try: thanks_btn.pack_forget()
-                except Exception: pass
-                return
-            try:
-                thanks_btn.configure(activebackground="#b84b5f")
-            except Exception:
-                pass
-            if popup.winfo_exists():
-                popup.after(30, fade_out, a)
-        fade_out()
-
-    row = tk.Frame(popup, bg="#1a103d"); row.pack(pady=(0, 12))
-    btn_reveal = tk.Button(row, text="🎁 Reveal my surprise", command=reveal_surprise); style_indigo(btn_reveal)
-    thanks_btn = tk.Button(row, text="Thanks, Nova!", command=on_thanks); style_raspberry(thanks_btn)
-    btn_reveal.pack(side="left", padx=8); thanks_btn.pack(side="left", padx=8)
-
-    # keys: Enter reveals; Esc/X closes (and only there we stop music)
-    popup.bind("<Return>", lambda e: reveal_surprise())
-    def _close():
-        _stop_music()
-        try: popup.destroy()
-        except Exception: pass
-    popup.bind("<Escape>", lambda e: _close())
-    popup.protocol("WM_DELETE_WINDOW", _close)  # pass function, don’t call
-
-    # Log which popup we’re showing (normal/belated)
-    logger.info("Showing %s birthday popup", "belated" if belated else "normal")
-
-    _center_and_show(popup)
-
-    # localized voice line
+    # Speak now (multilang), then build popup right when the wish line finishes (language-aware)
+    chosen_lang = getattr(utils, "selected_language", "en")
+    chosen_line = voice.get(chosen_lang, voice["en"])
     threading.Thread(target=lambda: _speak_multilang(
         voice["en"], hi=voice["hi"], de=voice["de"], fr=voice["fr"], es=voice["es"]
     ), daemon=True).start()
+    delay_ms = _delay_for_line(kind, chosen_lang, chosen_line)
+
+    def _build_popup_after_speech():
+        # Mark that this year's celebration has happened (normal OR belated)
+        try:
+            s = load_settings()
+            s["birthday_show_next_boot"] = False
+            s["birthday_show_next_boot_date"] = ""
+            s["birthday_celebration_scheduled"] = True
+            s["birthday_celebrated_year"] = datetime.date.today().year
+            save_settings(s)
+        except Exception:
+            pass
+
+        # Start music exactly when the popup appears
+        _play_music("pokemon_center_birthday.mp3", loop=True)
+
+        # Celebration popup (match demo visuals)
+        W, H = 520, 380
+        popup = tk.Toplevel(master=r)
+        popup.title("🎉 Happy Belated Birthday!" if belated else "🎉 Happy Birthday!")
+        popup.configure(bg="#1a103d")
+        popup.resizable(False, False)
+        try:
+            popup.attributes("-topmost", True)
+        except Exception:
+            pass
+        popup.geometry(f"{W}x{H}")
+
+        # Full-window starry background
+        canvas, layers = _make_starry_canvas(popup, W, H)
+
+        # circular Nova face with gentle orbit (84×84 at y=96)
+        face_id = None
+        try:
+            imgTk = _circular_photo("nova_birthday_face.png", (84, 84))
+            face_id = canvas.create_image(W // 2, 96, image=imgTk)
+            popup._cele_face_ref = imgTk
+        except Exception:
+            pass
+        _animate_stars_and_orbit(canvas, layers, face_id, W // 2, 96, 8)
+
+        # Heading text (y=200, bold 18)
+        heading = heading_tpl.format(name=name)
+        canvas.create_text(W // 2, 200, text=heading, font=("Segoe UI", 18, "bold"),
+                           fill="#e8e6ff", width=W - 40, justify="center")
+
+        # Buttons
+        def style_indigo(btn):
+            btn.configure(bg="#5a4fcf", fg="white", relief="flat",
+                          padx=14, pady=7, cursor="hand2", font=("Segoe UI", 10, "bold"), activeforeground="white")
+            btn.bind("<Enter>", lambda e: btn.config(bg="#b084ff"))
+            btn.bind("<Leave>", lambda e: btn.config(bg="#5a4fcf"))
+
+        def style_raspberry(btn):
+            btn.configure(bg="#b84b5f", fg="white", relief="flat",
+                          padx=14, pady=7, cursor="hand2", font=("Segoe UI", 10), activeforeground="white")
+            btn.bind("<Enter>", lambda e: btn.config(bg="#e07b8d"))
+            btn.bind("<Leave>", lambda e: btn.config(bg="#b84b5f"))
+
+        def reveal_surprise():
+            _show_poem_popup(popup, canvas)
+
+        # Thanks burst (keeps popup/music)
+        def thanks_burst():
+            burst = []
+            for _ in range(60):  # more particles than before
+                x = W // 2; y = 96
+                rdot = random.randint(2, 4)
+                dot = canvas.create_oval(x, y, x + rdot, y + rdot,
+                                         fill=random.choice(["#ffd1dc", "#ffe6a7", "#b5e9ff", "#c8ffe0"]),
+                                         outline="")
+                vx = random.uniform(-3.5, 3.5)
+                vy = random.uniform(-2.5, -4.5)
+                burst.append([dot, vx, vy, 0])
+            def step():
+                alive = False
+                for item in burst:
+                    dot, vx, vy, age = item
+                    vy += 0.18
+                    canvas.move(dot, vx, vy)
+                    item[2] = vy; item[3] = age + 1
+                    if age < 52:
+                        alive = True
+                    else:
+                        try: canvas.delete(dot)
+                        except Exception: pass
+                if alive and popup.winfo_exists():
+                    popup.after(16, step)
+            step()
+
+        def on_thanks():
+            btn_thanks.config(state="disabled")
+            thanks_burst()
+            def fade_out(a=1.0):
+                a -= 0.15
+                if a <= 0:
+                    try: btn_thanks.place_forget()
+                    except Exception: pass
+                    return
+                try:
+                    btn_thanks.configure(activebackground="#b84b5f")
+                except Exception:
+                    pass
+                if popup.winfo_exists():
+                    popup.after(30, fade_out, a)
+            fade_out()
+
+        # place buttons near bottom with balanced spacing (match demo)
+        btn_reveal = tk.Button(popup, text="🎁 Reveal my surprise", command=reveal_surprise)
+        style_indigo(btn_reveal)
+        btn_thanks = tk.Button(popup, text="Thanks, Nova!", command=on_thanks)
+        style_raspberry(btn_thanks)
+
+        canvas.create_window(W // 2 - 90 + 10, H - 105, window=btn_reveal)
+        canvas.create_window(W // 2 + 90 + 10, H - 105, window=btn_thanks)
+
+        # keys: Enter reveals; Esc/X closes (and only there we stop music)
+        popup.bind("<Return>", lambda e: reveal_surprise())
+        def _close():
+            _stop_music()
+            try: popup.destroy()
+            except Exception: pass
+        popup.bind("<Escape>", lambda e: _close())
+        popup.protocol("WM_DELETE_WINDOW", _close)
+
+        utils.logger.info("Showing %s birthday popup", "belated" if belated else "normal")
+        _center_and_show(popup)
+
+    # schedule popup build after speech finishes (per-language exact timing)
+    _tk_after(delay_ms, _build_popup_after_speech)
+
+# -------------------------------
+# Poem popup — starry bg, circular Nova, centered oval, CTA; closes both cleanly
+# -------------------------------
+def _show_poem_popup(parent_popup: tk.Toplevel, parent_canvas: tk.Canvas):
+    r = _root()
+    if not r or not parent_popup or not parent_popup.winfo_exists():
+        return
+
+    W, H = 520, 380
+    win = tk.Toplevel(master=parent_popup)
+    win.title("🎁 Your Birthday Poem")
+    win.configure(bg="#1a103d")
+    win.resizable(False, False)
+    try:
+        win.attributes("-topmost", True)
+        win.transient(parent_popup)
+    except Exception:
+        pass
+    win.geometry(f"{W}x{H}")
+
+    cvs, layers = _make_starry_canvas(win, W, H)
+
+    # small circular glow face (≈70 at y=72)
+    face_id = None
+    try:
+        imgTk = _circular_photo("nova_birthday_face.png", (70, 70))
+        face_id = cvs.create_image(W // 2, 72, image=imgTk)
+        win._poem_face_ref = imgTk
+    except Exception:
+        pass
+    _animate_stars_and_orbit(cvs, layers, face_id, W // 2, 72, 8)
+
+    # Oval poem bubble (match demo geometry)
+    POEM_CENTER_Y       = 210
+    POEM_RADIUS_X       = 244
+    POEM_RADIUS_Y       = 82
+    POEM_TEXT_INNER_PAD = 12
+    CTA_MARGIN_BOTTOM   = 48
+
+    cx = W // 2
+    left   = cx - POEM_RADIUS_X
+    right  = cx + POEM_RADIUS_X
+    top    = POEM_CENTER_Y - POEM_RADIUS_Y
+    bottom = POEM_CENTER_Y + POEM_RADIUS_Y
+    cvs.create_oval(left, top, right, bottom, fill="#241a50", outline="")
+
+    poem = get_birthday_poem(name=(load_from_memory("name") or "Trainer"))
+    text_wrap = (POEM_RADIUS_X - POEM_TEXT_INNER_PAD) * 2
+    cvs.create_text(cx, POEM_CENTER_Y, text=poem, font=("Segoe UI", 11, "bold"),
+                    fill="#e8e6ff", width=text_wrap, justify="left")
+
+    # CTA button
+    def style_raspberry(btn):
+        btn.configure(bg="#b84b5f", fg="white", relief="flat",
+                      padx=16, pady=8, cursor="hand2", font=("Segoe UI", 10, "bold"), activeforeground="white")
+        btn.bind("<Enter>", lambda e: btn.config(bg="#e07b8d"))
+        btn.bind("<Leave>", lambda e: btn.config(bg="#b84b5f"))
+
+    def close_everything():
+        # big confetti on poem AND celebration, then stop music and close both (after overlay completes)
+        try:
+            _mega_confetti_on(win)
+            if parent_popup and parent_popup.winfo_exists():
+                _mega_confetti_on(parent_popup)
+        except Exception:
+            pass
+        _stop_music()
+        # destroy *after* overlay finishes to avoid any glimpse
+        win.after(1300, lambda: (win.destroy() if win.winfo_exists() else None))
+        if parent_popup and parent_popup.winfo_exists():
+            parent_popup.after(1300, lambda: (parent_popup.destroy() if parent_popup.winfo_exists() else None))
+
+    btn = tk.Button(win, text="Hope you liked the gesture ✨", command=close_everything)
+    style_raspberry(btn)
+    cvs.create_window(W // 2, H - CTA_MARGIN_BOTTOM, window=btn)
+
+    win.bind("<Return>", lambda e: close_everything())
+    win.bind("<Escape>", lambda e: close_everything())
+    win.protocol("WM_DELETE_WINDOW", close_everything)
+
+    _center_and_show(win)
