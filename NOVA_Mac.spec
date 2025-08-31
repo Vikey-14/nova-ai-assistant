@@ -12,15 +12,12 @@ for root in ["assets", "data", "handlers", "logs"]:
     if p.is_dir():
         for f in p.rglob("*"):
             if f.is_file():
-                # copy file into its relative folder inside the app bundle
                 datas.append((str(f), str(f.parent.relative_to(BASE))))
 
-# single files at project root
 for fn in ["settings.json", "curiosity_data.json", "utils.py"]:
     if (BASE / fn).exists():
         datas.append((str(BASE / fn), "."))
 
-# hidden imports & extra package data
 hidden = []
 hidden += collect_submodules("handlers")
 hidden += [
@@ -30,10 +27,8 @@ hidden += [
     "numpy", "sympy", "matplotlib", "objc", "AppKit", "Foundation", "Quartz"
 ]
 for m in ["matplotlib", "dateparser", "dateparser_data", "certifi"]:
-    try:
-        datas += collect_data_files(m)
-    except Exception:
-        pass
+    try: datas += collect_data_files(m)
+    except Exception: pass
 
 excludes = ["win32com", "comtypes", "pythoncom", "pywintypes", "wmi"]
 
@@ -51,9 +46,9 @@ app_main = BUNDLE(exe1, name="Nova.app", icon=ICON_ICNS,
                       "LSApplicationCategoryType": "public.app-category.utilities"
                   })
 
-# ---- tray app (use tray_app.py if present, else tray_linux.py) ----
+# ---- tray app (prefer tray_app.py; fallback to tray_linux.py) ----
 tray_entry = "tray_app.py" if (BASE / "tray_app.py").exists() else "tray_linux.py"
-a2 = Analysis([tray_entry], pathex=[str(BASE)], datas=[],
+a2 = Analysis([tray_entry], pathex=[str(BASE)], datas=datas,
               hiddenimports=hidden, excludes=excludes, noarchive=True)
 pyz2 = PYZ(a2.pure, a2.zipped_data)
 exe2 = EXE(pyz2, a2.scripts, a2.binaries, a2.zipfiles, a2.datas, [],
@@ -66,7 +61,5 @@ app_tray = BUNDLE(exe2, name="NovaTray.app", icon=ICON_ICNS,
                       "Nova Tray listens for your wake word."
                   })
 
-coll = COLLECT(app_main, app_tray,
-               a1.binaries, a1.zipfiles, a1.datas,
-               a2.binaries, a2.zipfiles, a2.datas,
-               name="NOVA_Mac")
+# Keep both targets alive
+apps = [app_main, app_tray]

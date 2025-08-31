@@ -41,8 +41,8 @@ jobs:
         run: |
           APPVER=${GITHUB_REF_NAME#v}
           mkdir -p dist_mac/Nova-${APPVER}
-          cp -R dist/NOVA_Mac/Nova.app dist_mac/Nova-${APPVER}/
-          cp -R dist/NOVA_Mac/NovaTray.app dist_mac/Nova-${APPVER}/
+          cp -R dist/Nova.app dist_mac/Nova-${APPVER}/
+          cp -R dist/NovaTray.app dist_mac/Nova-${APPVER}/
           cp -R mac dist_mac/Nova-${APPVER}/
           hdiutil create -volname "Nova ${APPVER}" -srcfolder dist_mac/Nova-${APPVER} -ov -format UDZO Nova_${APPVER}_mac.dmg
 
@@ -51,5 +51,5 @@ jobs:
         with:
           name: Nova-mac-${{ github.ref_name }}
           path: |
-            dist/NOVA_Mac/*.app
+            dist/*.app
             Nova_*_mac.dmg
