@@ -29,6 +29,10 @@ def _root():
         try:
             r = tk.Tk()
             r.withdraw()
+            try:
+                r.iconbitmap(utils.resource_path("nova_icon_big.ico"))
+            except Exception:
+                pass
         except Exception:
             return None
     return r
@@ -415,6 +419,11 @@ def show_birthday_input_popup():
     # --- Window ---
     W, H = 480, 360
     popup = tk.Toplevel(master=r)
+    try:
+        popup.iconbitmap(utils.resource_path("nova_icon_big.ico"))
+    except Exception:
+        pass
+
     popup.title("🎂 What's Your Birthdate?")
     popup.configure(bg="#1a103d")
     popup.resizable(False, False)
@@ -658,6 +667,11 @@ def show_birthday_celebration_popup(belated: bool = False):
         # Celebration popup (match demo visuals)
         W, H = 520, 380
         popup = tk.Toplevel(master=r)
+        try:
+            popup.iconbitmap(utils.resource_path("nova_icon_big.ico"))
+        except Exception:
+            pass
+
         popup.title("🎉 Happy Belated Birthday!" if belated else "🎉 Happy Birthday!")
         popup.configure(bg="#1a103d")
         popup.resizable(False, False)
@@ -780,6 +794,11 @@ def _show_poem_popup(parent_popup: tk.Toplevel, parent_canvas: tk.Canvas):
 
     W, H = 520, 380
     win = tk.Toplevel(master=parent_popup)
+    try:
+        win.iconbitmap(utils.resource_path("nova_icon_big.ico"))
+    except Exception:
+        pass
+
     win.title("🎁 Your Birthday Poem")
     win.configure(bg="#1a103d")
     win.resizable(False, False)

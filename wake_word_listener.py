@@ -20,7 +20,9 @@ from utils import (
     data_path,
     load_json_utf8,
     LOG_DIR,
-    MIC_LOCK,
+    MIC_LOCK,                 # 🔒 shared mic lock (must be the same as utils.listen_command)
+    LANGUAGE_FLOW_ACTIVE, 
+    set_language_flow
 )
 import utils  # so we can set utils.selected_language
 
@@ -38,7 +40,10 @@ from intents import (
     said_change_language,
     guess_language_code,
     SUPPORTED_LANGS,
-    CURIOSITY_MENU
+    CURIOSITY_MENU,
+    # 🔹 unified language texts
+    get_language_prompt_text,
+    get_invalid_language_voice_to_typed,  # ✅ new helper
 )
 
 # =========================
@@ -52,10 +57,23 @@ PAUSE_MS = 700
 
 # ✅ Thread control
 _stop_event = threading.Event()
-_wake_thread = None
+_wake_thread: threading.Thread | None = None   # ✅ ensure we can join & null it
 
 # ✅ SSML probe flag
 _ssml_probed = False
+
+# === SR quiet-window gate (prevents immediate "didn't catch that" after key UX lines)
+__sr_quiet_until = 0.0
+
+def _sr_quiet(ms: int | float):
+    """Keep SR/wake from arming for the given number of milliseconds."""
+    import time as _t
+    global __sr_quiet_until
+    __sr_quiet_until = max(__sr_quiet_until, _t.time() + max(0.0, float(ms)) / 1000.0)
+
+def _sr_is_quiet() -> bool:
+    import time as _t
+    return _t.time() < __sr_quiet_until
 
 # ✅ Lazy import of runtime helpers (avoid circulars)
 def get_utils():
@@ -316,21 +334,21 @@ def serve_followup(_speak_multilang, log_interaction, lang_code: str):
 # ✅ Wake toggle
 def _wake_enabled() -> bool:
     try:
-        mode = get_wake_mode()
-        mode = (str(mode) or "").lower().replace("-", "_").strip()
-        return mode in ("on", "always_on")
+        from utils import get_wake_mode, load_settings
+        # Primary: canonical boolean
+        return bool(get_wake_mode())
     except Exception:
-        return False
+        # Fallback: merged settings (boolean key)
+        try:
+            settings = load_settings()
+            return bool(settings.get("wake_mode", True))
+        except Exception:
+            return False
 
-# ✅ Voice change-language flow (self-contained, no circular import)
+# ✅ Voice change-language flow (single source of truth for texts via intents)
 def run_change_language_flow(_speak_multilang, listen_command, current_lang: str) -> bool:
-    prompt = {
-        "en": "Sure — say the language you want: English, Hindi, German, French, or Spanish.",
-        "hi": "ठीक है — वह भाषा बोलिए जिसमें आप बात करना चाहते हैं: अंग्रेज़ी, हिन्दी, जर्मन, फ्रेंच या स्पेनिश।",
-        "fr": "D’accord — dites la langue que vous voulez : anglais, hindi, allemand, français ou espagnol.",
-        "de": "Alles klar — sagen Sie die gewünschte Sprache: Englisch, Hindi, Deutsch, Französisch oder Spanisch.",
-        "es": "De acuerdo — di el idioma que quieres: inglés, hindi, alemán, francés o español.",
-    }.get(current_lang, "Sure — say the language you want: English, Hindi, German, French, or Spanish.")
+    # Use centralized prompt from intents (same as first-boot wording)
+    prompt = get_language_prompt_text(current_lang)
     speak_text(_speak_multilang, prompt, current_lang, log_command="change_language_prompt")
 
     for _ in range(2):
@@ -354,10 +372,20 @@ def run_change_language_flow(_speak_multilang, listen_command, current_lang: str
             }
             msg, lc = confirmations.get(code, ("Language updated.", code))
             speak_text(_speak_multilang, msg, lc, log_command="change_language_done")
+
+            # 🔇 Give the greeting room to play without SR re-arming instantly
+            try:
+                from utils import wait_for_tts_quiet
+                wait_for_tts_quiet(200)  # small buffer after the confirmation finishes
+            except Exception:
+                pass
+            _sr_quiet(6500)  # ~6.5s is what your main greeting uses
+
             return True
 
-    # fallback if not recognized
-    speak_text(_speak_multilang, "I couldn't catch a supported language. Keeping the current one.", current_lang, log_command="change_language_failed")
+    # Fallback: unified invalid-language line (voice → typed wording)
+    invalid_line = get_invalid_language_voice_to_typed(current_lang)
+    speak_text(_speak_multilang, invalid_line, current_lang, log_command="change_language_failed")
     return False
 
 # 🔁 Wake loop
@@ -386,13 +414,43 @@ def _wake_loop():
             if not _wake_enabled():
                 return
 
+            # ✅ HARD GATE: if language flow is active, wake stays silent
+            if LANGUAGE_FLOW_ACTIVE:
+                time.sleep(0.15)
+                continue
+
+            # ✅ Respect quiet window (e.g., right after language-change confirmation)
+            if _sr_is_quiet():
+                time.sleep(0.12)
+                continue
+
             # 🔒 Single mic user
             with MIC_LOCK:
+                if _stop_event.is_set() or not _wake_enabled():
+                    break
                 with sr.Microphone() as source:
+                    # ✅ shorten adjust so stop reacts quickly
                     recognizer.dynamic_energy_threshold = True
                     recognizer.energy_threshold = 300
-                    recognizer.adjust_for_ambient_noise(source, duration=0.6)
-                    audio = recognizer.listen(source, timeout=5, phrase_time_limit=4)
+                    recognizer.adjust_for_ambient_noise(source, duration=0.3)  # was 0.6
+
+                    if _stop_event.is_set() or not _wake_enabled():
+                        break
+
+                    try:
+                        # ✅ shorter windows so stop() frees the mic fast
+                        audio = recognizer.listen(
+                            source,
+                            timeout=0.9,           # was 5
+                            phrase_time_limit=2.5  # was 4
+                        )
+                    except sr.WaitTimeoutError:
+                        if _stop_event.is_set() or not _wake_enabled():
+                            break
+                        continue
+
+            if _stop_event.is_set() or not _wake_enabled():
+                break
 
             lang_code = selected_language
             google_lang = _GOOGLE_LOCALE.get(lang_code, "en-US")
@@ -402,7 +460,7 @@ def _wake_loop():
                 continue
             except sr.RequestError as e:
                 file_log_csv("wake_sr_request_error", str(e), lang_code)
-                time.sleep(0.4)
+                time.sleep(0.25)
                 continue
 
             candidates = WAKE_WORDS.get(lang_code, WAKE_WORDS["en"])
@@ -490,11 +548,13 @@ def _wake_loop():
             continue
         except Exception as e:
             try:
-                _speak_multilang, log_interaction, lang_code, _ = get_utils()
-                _speak_multilang(**{lang_code: "Sorry, I had a small issue — try again."})
-                log_interaction("wake_error", str(e), lang_code)
+                # ❌ Do NOT speak apologies while the language flow owns the mic
+                if not LANGUAGE_FLOW_ACTIVE:
+                    _speak_multilang, log_interaction, lang_code, _ = get_utils()
+                    _speak_multilang(**{lang_code: "Sorry, I had a small issue — try again."})
+                log_interaction("wake_error", str(e), (selected_language or "en"))
                 file_log(f"ERROR | {e}")
-                file_log_csv("wake_error", str(e), lang_code)
+                file_log_csv("wake_error", str(e), (selected_language or "en"))
             except Exception:
                 pass
             continue
@@ -510,8 +570,28 @@ def start_wake_listener_thread():
     _wake_thread = threading.Thread(target=_wake_loop, daemon=True)
     _wake_thread.start()
 
-# 🛑 Stop listener
+# 🛑 Stop listener  — ✅ FIX: actually wait for the thread so the mic is freed
 def stop_wake_listener_thread():
+    global _wake_thread
     _stop_event.set()
-    from utils import log_interaction, selected_language
-    log_interaction("wake_listener", "stopped via toggle", selected_language)  
+    try:
+        from utils import log_interaction, selected_language
+        log_interaction("wake_listener", "stopped via toggle", selected_language)
+    except Exception:
+        pass
+
+    t = _wake_thread
+    if t and t.is_alive():
+        try:
+            t.join(timeout=1.8)   # short wait; listen() windows were shortened above
+        except Exception:
+            pass
+    _wake_thread = None
+
+# ⏳ Helper for callers: wait until the wake thread is gone (mic quiet)
+def wait_for_wake_quiet(timeout: float = 1.2):
+    """Block briefly until the wake thread is stopped (mic is free)."""
+    end = time.time() + max(0.1, timeout)
+    t = _wake_thread
+    while t and t.is_alive() and time.time() < end:
+        time.sleep(0.05)

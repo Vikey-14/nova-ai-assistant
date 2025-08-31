@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from sympy import sympify, lambdify, solve, expand
 from datetime import datetime
 import tkinter as tk
-from playsound import playsound
+from audio_player import play_audio_file
 from tkinter import messagebox, simpledialog
 import re
 import os
@@ -18,7 +18,7 @@ import math
 from .nova_graph_ui import build_interactive_figure, open_graph_preview
 
 # ✅ App helpers (paths, JSON loader, GUI bridge pieces)
-from utils import announce_saved_graph, graphs_dir, handlers_path, load_json_utf8, pkg_path
+from utils import announce_saved_graph, graphs_dir, handlers_path, load_json_utf8, pkg_path, resource_path
 
 # ✅ Lazy import for Nova internal functions (speech + logger + GUI bridge)
 def get_utils():
@@ -400,7 +400,7 @@ def themed_input_popup(variable_name):
     def play_open_chime():
         try:
             chime_path = str(pkg_path("assets", "ui_popup_open.mp3"))
-            threading.Thread(target=lambda: playsound(chime_path), daemon=True).start()
+            threading.Thread(target=lambda: play_audio_file(chime_path), daemon=True).start()
         except Exception:
             pass
 
@@ -408,7 +408,7 @@ def themed_input_popup(variable_name):
     def play_submit_chime():
         try:
             chime_path = str(pkg_path("assets", "popup_submit_chime.mp3"))
-            threading.Thread(target=lambda: playsound(chime_path), daemon=True).start()
+            threading.Thread(target=lambda: play_audio_file(chime_path), daemon=True).start()
         except Exception:
             pass
 
@@ -416,13 +416,18 @@ def themed_input_popup(variable_name):
     def play_error_beep():
         try:
             chime_path = str(pkg_path("assets", "error_beep.mp3"))
-            threading.Thread(target=lambda: playsound(chime_path), daemon=True).start()
+            threading.Thread(target=lambda: play_audio_file(chime_path), daemon=True).start()
         except Exception:
             pass
 
     result = [None]
     popup = Toplevel()
     popup.title("Enter Constant")
+    try:
+        popup.iconbitmap(resource_path("nova_icon_big.ico"))
+    except Exception:
+        pass
+
     popup.geometry("360x360")
     popup.configure(bg="#0f0f0f")
     popup.resizable(False, False)
@@ -603,19 +608,19 @@ def themed_save_graph_popup():
     def play_open_chime():
         try:
             chime_path = str(pkg_path("assets", "ui_popup_open.mp3"))
-            threading.Thread(target=lambda: playsound(chime_path), daemon=True).start()
+            threading.Thread(target=lambda: play_audio_file(chime_path), daemon=True).start()
         except Exception:
             pass
     def play_submit_chime():
         try:
             chime_path = str(pkg_path("assets", "popup_submit_chime.mp3"))
-            threading.Thread(target=lambda: playsound(chime_path), daemon=True).start()
+            threading.Thread(target=lambda: play_audio_file(chime_path), daemon=True).start()
         except Exception:
             pass
     def play_error_beep():
         try:
             chime_path = str(pkg_path("assets", "error_beep.mp3"))
-            threading.Thread(target=lambda: playsound(chime_path), daemon=True).start()
+            threading.Thread(target=lambda: play_audio_file(chime_path), daemon=True).start()
         except Exception:
             pass
     def fade_in(window, steps=20, delay=15):
@@ -631,6 +636,10 @@ def themed_save_graph_popup():
     result = [None]
     popup = Toplevel()
     popup.title("Save Graph")
+    try:
+        popup.iconbitmap(resource_path("nova_icon_big.ico"))
+    except Exception:
+        pass
     popup.geometry("360x360")
     popup.configure(bg="#0f0f0f")
     popup.resizable(False, False)

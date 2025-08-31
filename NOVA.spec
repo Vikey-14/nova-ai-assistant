@@ -150,12 +150,16 @@ for fname in [
     'curiosity_data.json',
     'poem_bank.json',
     'nova_icon.ico',
+    'nova_icon_big.ico',
     'nova_logs.txt',
 ]:
     add_file_if_exists(fname, '.')
 
 # Ensure local utils.py is present for the runtime hook to pin
 add_file_if_exists('utils.py', '.')
+
+# ✅ Explicitly include the new blocklist file (and still copy the whole data/ below)
+add_file_if_exists('data/name_blocklist_en.txt', 'data')
 
 # Catch-all for any other root-level JSONs
 try:
@@ -168,11 +172,14 @@ except Exception:
 # Include all non-.py content from handlers/ and data/
 add_dir_nonpy('handlers', 'handlers')
 add_dir_nonpy('data', 'data')
+
 # Include assets (icons, images used by tray tip, etc.)
 add_dir_nonpy('assets', 'assets')
 
-# Optional hooks folder
-hookspaths = [str(BASE / 'hooks')] if (BASE / 'hooks').is_dir() else []
+# ---------- ONLY CHANGE HERE ----------
+# Optional hooks folder (Windows-only hooks now live in hooks_win/)
+hookspaths = [str(BASE / 'hooks_win')] if (BASE / 'hooks_win').is_dir() else []
+# --------------------------------------
 
 # =========================================================
 # ==============  MAIN APP: NOVA.exe  =====================
@@ -185,11 +192,12 @@ a_main = Analysis(
     hiddenimports=hiddenimports,
     hookspath=hookspaths,
     hooksconfig={},
-    # Runtime hooks: pin local utils + quiet Matplotlib cache/logs (main app uses them)
+    # ---------- ONLY CHANGE HERE ----------
     runtime_hooks=[
-        str(BASE / 'hooks' / 'rthook_force_local_utils.py'),
-        str(BASE / 'hooks' / 'rthook_mpl_quiet.py'),
+        str(BASE / 'hooks_win' / 'rthook_force_local_utils.py'),
+        str(BASE / 'hooks_win' / 'rthook_mpl_quiet.py'),
     ],
+    # --------------------------------------
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -209,19 +217,18 @@ exe_main = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,  # GUI app
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=str(BASE / 'nova_icon.ico'),
+    icon=str(BASE / 'nova_icon_big.ico'),
 )
 
 # =========================================================
 # ==============  TRAY APP: Nova Tray.exe  ================
 # =========================================================
-# Tray does not need the main runtime hooks; keep it lean.
 a_tray = Analysis(
     [str(BASE / 'tray_app.py')],
     pathex=[str(BASE)],
@@ -230,7 +237,7 @@ a_tray = Analysis(
     hiddenimports=hiddenimports,
     hookspath=hookspaths,
     hooksconfig={},
-    runtime_hooks=[],   # no special hooks for the tray
+    runtime_hooks=[],
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -245,27 +252,23 @@ exe_tray = EXE(
     a_tray.scripts,
     [],
     exclude_binaries=True,
-    name='Nova Tray',   # <-- produces "Nova Tray.exe"
+    name='Nova Tray',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,      # tray is GUI-only too
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=str(BASE / 'nova_icon.ico'),
+    icon=str(BASE / 'nova_icon_big.ico'),
 )
 
-# =========================================================
-# ==============  COLLECT (one folder)  ===================
-# =========================================================
 collect_args = [
     exe_main,
     exe_tray,
-    # pack both analyses' artifacts
     a_main.binaries, a_main.zipfiles, a_main.datas,
     a_tray.binaries, a_tray.zipfiles, a_tray.datas,
 ]
@@ -280,5 +283,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='NOVA',   # dist/NOVA/ will contain NOVA.exe and Nova Tray.exe
+    name='NOVA',
 )

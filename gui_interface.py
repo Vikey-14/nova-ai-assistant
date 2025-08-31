@@ -1,15 +1,24 @@
 # gui_interface.py — Nova main UI
 # (starry background + smoother logo + never-under-taskbar + mic click-to-talk)
 # + ghost scrollbar (hidden until edge-hover) + no-flicker reveal
+# Echo YOU first: Send prints the user's line immediately, clears the box,
+# then dispatches work on a background thread (or external_callback).
+
+from __future__ import annotations
 
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from tkinter import font as tkfont
 from PIL import Image, ImageTk  # ← needed for starfield + logo images
-import os, math, time, ctypes, threading  # threading for push-to-talk
+import os, sys, math, time, ctypes, threading  # threading for push-to-talk
 
 # ✅ Single source of truth for app resources / callbacks
 from utils import resource_path, set_gui_callback
+
+# Detect WSL (so we can apply safer geometry)
+IS_WSL = bool(os.environ.get("WSL_DISTRO_NAME"))
+IS_LINUX = sys.platform.startswith("linux")
+IS_LINUX_OR_WSL = IS_LINUX or IS_WSL  # ← used to keep changes Linux-only
 
 # ✅ Reuse the exact starfield used by your graph preview
 try:
@@ -86,11 +95,15 @@ def position_main_window(root, w=820, h=680, upward_bias=120, min_top=24, safe_b
         root.geometry(f"{w}x{h}+{x}+{y}")
         return
 
-    # Fallback (non-Windows): center with a bottom margin
+    # Fallback (non-Windows): center with robust clamp to screen (no negative y)
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
     x = max(0, (sw - w) // 2)
-    y = max(min_top, (sh - h) // 2 - upward_bias)
-    y = min(y, max(0, sh - h - safe_bottom))
+    y_pref = (sh - h) // 2 - upward_bias
+    y = max(min_top, y_pref)
+    # keep window fully on-screen; bigger bottom guard on Linux/WSL
+    bottom_guard = 72 if IS_LINUX_OR_WSL else 12
+    y = min(y, max(min_top, sh - h - bottom_guard))
+    y = max(0, y)
     root.geometry(f"{w}x{h}+{x}+{y}")
 
 # ✅ precise upper-center placer with a second pass (never under taskbar)
@@ -116,9 +129,50 @@ def _place_main_window_safely(root: tk.Tk, y_percent: float = 0.26, bottom_margi
         w, h = root.winfo_width(), root.winfo_height()
         x = (sw - w) // 2
         y = max(0, (sh - h) // 2 - 120)
+        # ⬇️ use requested bottom_margin on Linux; small guard otherwise
+        guard = bottom_margin if IS_LINUX_OR_WSL else 12
+        y = min(y, max(0, sh - h - guard))
         root.geometry(f"+{x}+{y}")
         if not _second_pass:
             root.after(220, lambda: _place_main_window_safely(root, y_percent, bottom_margin, True))
+
+# ---------- Linux fit-to-screen (prevents bottom clipping) ----------
+def _fit_linux_size(root: tk.Tk, min_w=720, min_h=560, side_margin=12, top_margin=24, bottom_margin=72):
+    """Linux/WSL only: ensure window is tall enough for content but never under the bottom panel."""
+    if not IS_LINUX_OR_WSL:
+        return
+    try:
+        root.update_idletasks()
+        sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+        req_w, req_h = root.winfo_reqwidth(), root.winfo_reqheight()
+        W = min(max(req_w, min_w), max(320, sw - 2*side_margin))
+        H = min(max(req_h, min_h), max(320, sh - (top_margin + bottom_margin)))
+        root.geometry(f"{int(W)}x{int(H)}")
+        root.minsize(int(W), int(H))
+    except Exception:
+        pass
+
+# --- Linux hard-center helpers (WSLg sometimes ignores first geometry) ---
+def _linux_center_now(root: tk.Tk, y_bias: int = 60, bottom_guard: int = 120):
+    if not IS_LINUX_OR_WSL:
+        return
+    try:
+        root.update_idletasks()
+        sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+        w, h   = root.winfo_width(), root.winfo_height()
+        x = max(0, (sw - w) // 2)
+        y = max(24, min((sh - h) // 2 - y_bias, sh - h - bottom_guard))
+        root.geometry(f"+{x}+{y}")
+    except Exception:
+        pass
+
+def _linux_center_after_map(root: tk.Tk):
+    if not IS_LINUX_OR_WSL:
+        return
+    _linux_center_now(root)
+    root.after(200, lambda: _linux_center_now(root))
+    root.after(700, lambda: _linux_center_now(root))
+
 
 class Tooltip:
     def __init__(self, widget, text='Tooltip'):
@@ -264,6 +318,10 @@ class _SolutionPopup(tk.Toplevel):
     def __init__(self, master, mode="Physics", emoji="⚛️", first_answer="", **kw):
         super().__init__(master, **kw)
         self.title("Solution")
+        try:
+            self.iconbitmap(resource_path("nova_icon_big.ico"))
+        except Exception:
+            pass
         self.configure(bg=POP_BG)
         self.geometry("920x660+180+120")
         self.minsize(680, 480)
@@ -287,200 +345,326 @@ def _star_points(cx, cy, r_out, r_in, points=4, angle_offset=0.0):
         pts.extend([cx + r * math.cos(ang), cy + r * math.sin(ang)])
     return pts
 
-# ----------------------------- Starry “Ghost” Scrollbar -----------------------------
+# ----------------------------- Scrollbar -----------------------------
 class GhostScrollbar(tk.Canvas):
-    """A custom canvas-based vertical scrollbar that:
-       • stays hidden until the cursor nears the right edge or over the bar
-       • matches the starry theme
-       • pill thumb: black fill with outline in current language glow color
-       • supports Up/Down arrow keys to scroll (thumb visible while moving)
     """
-    def __init__(self, master, accent="#00ffcc", width=10, **kw):
+    Starts hidden. Shows on edge-hover / wheel / arrow keys / drag.
+    Auto-hides after 7s of true inactivity (no flicker, no content reflow).
+    Fat ▲ ▼, chunky rectangular thumb (black fill + thin accent border), no glow.
+    """
+
+    # visuals / geometry
+    BTN_H = 16
+    PAD   = 0
+    MIN_THUMB = 36
+    EDGE_SAFE = 1            # draw strokes 1px inside so they never clip
+    STROKE_W = 1
+    TRI_INSET = 0
+    TRI_FILL_SCALE = 1.0
+
+    # behavior
+    SHOW_SECS = 7.0          # visible for at least 7s of true inactivity
+    HOVER_ZONE_PX = 56       # pointer within this distance of the right edge counts as 'near'
+    POLL_MS = 200            # watchdog cadence (ms)
+
+    def __init__(self, master, accent="#00ffcc", width=20, **kw):
         super().__init__(master, width=width, highlightthickness=0, bd=0, bg=STAR_BG, **kw)
         self.accent = accent
-        self._text = None
-        self._first = 0.0
-        self._last  = 1.0
-        self._thumb_id = None
+        self._text: tk.Text | None = None
+        self._first, self._last = 0.0, 1.0
+
+        # state
+        self._drawn = False          # are graphics drawn? (widget always stays gridded)
         self._dragging = False
-        self._drag_offset = 0.0
-        self._hide_after_id = None
-        self._visible = False
-        self._min_thumb_px = 28
-        self._hover_zone_px = 28
-        self._track_color = "#151515"  # subtle track to fit dark theme
-        self._thumb_fill  = "#000000"  # ← black fill, as you wanted
+        self._drag_offset = 0
+        self._scrollable = False
+        self._hovering = False
 
-        # drawing & interactions
-        self.bind("<Configure>", lambda e: self._redraw())
-        self.bind("<Enter>", self._show_now)
-        self.bind("<Leave>", self._schedule_hide)
-        self.bind("<Button-1>", self._on_click)
-        self.bind("<B1-Motion>", self._on_drag)
-        self.bind("<ButtonRelease-1>", self._on_release)
-        self.bind("<Motion>", self._maybe_hover)
+        # timers
+        self._watchdog_id = None
+        self._last_alive = time.monotonic()
+        self._repeat_id = None
 
-    # Attach to a Text widget
+        # canvas item ids
+        self._btn_up = self._btn_dn = None
+        self._btn_up_fill = self._btn_dn_fill = None
+        self._thumb_border = None
+        self._thumb_fill = None
+
+        # colors
+        self._track_color = "#151515"
+        self._fill_black  = "#000000"
+
+        # events
+        self.bind("<Configure>", lambda e: self._redraw_if_drawn(), add="+")
+        self.bind("<Enter>",     lambda e: (self._set_hover(True),  self._show_now()), add="+")
+        self.bind("<Leave>",     lambda e: (self._set_hover(False), self._poke()), add="+")
+        self.bind("<Button-1>",  self._on_click, add="+")
+        self.bind("<B1-Motion>", self._on_drag, add="+")
+        self.bind("<ButtonRelease-1>", self._on_release, add="+")
+        self.bind("<Motion>",    lambda e: (self._show_now(), self._poke()), add="+")
+
+        # boot: keep gutter but draw nothing (hidden)
+        self.after_idle(self._clear_drawings)
+
+    # ---------- helpers ----------
+    def _set_hover(self, v: bool): self._hovering = bool(v)
+    def _poke(self): self._last_alive = time.monotonic()
+
+    def _clear_drawings(self):
+        self.delete("all")
+        self._drawn = False
+        # paint the gutter to blend with the background (so it looks invisible)
+        w = int(self.winfo_width()); h = int(self.winfo_height())
+        if w > 0 and h > 0:
+            self.create_rectangle(0, 0, w, h, fill=STAR_BG, outline="")
+        # do NOT grid_remove → prevents text reflow/flicker
+
+    def _redraw_if_drawn(self):
+        if self._drawn:
+            self._redraw()
+
+    def _sync_from_text(self, repaint=True):
+        """Force-refresh _first/_last from the Text and optionally redraw (thumb follows keys/wheel)."""
+        if not self._text:
+            return
+        try:
+            f, l = self._text.yview()
+            self._first, self._last = float(f), float(l)
+            if repaint and self._drawn:
+                self._redraw()
+        except Exception:
+            pass
+
+    # ---------- public API ----------
     def attach(self, text_widget: tk.Text):
         self._text = text_widget
         text_widget.configure(yscrollcommand=self.on_textscroll)
-        # show on wheel
-        text_widget.bind("<MouseWheel>", lambda e: (self._show_now(e), self._wheel(e)), add="+")
-        # reveal when cursor approaches right edge
+        text_widget.bind("<MouseWheel>", lambda e: (self._show_now(e), self._wheel(e), self._poke()), add="+")
         text_widget.bind("<Motion>", self._edge_probe, add="+")
-        # Up/Down arrow keys also scroll & reveal
-        text_widget.bind_all("<Up>", self._on_arrow, add="+")
+        text_widget.bind_all("<Up>",   self._on_arrow, add="+")
         text_widget.bind_all("<Down>", self._on_arrow, add="+")
-        self._redraw()
+        self.after_idle(self._clear_drawings)
 
-    # yscrollcommand from Text → update fractions and redraw
     def on_textscroll(self, first, last):
         try:
-            self._first = float(first)
-            self._last  = float(last)
+            self._first, self._last = float(first), float(last)
         except Exception:
             self._first, self._last = 0.0, 1.0
-        self._redraw()
-        # Hide entirely if everything fits
-        if self._first <= 0.0001 and self._last >= 0.9999:
-            self._hide_now()
+        # Show when there is scroll range; still OK to show briefly on any activity
+        self._show_now() if (self._last - self._first) < 0.9999 else self._hide_now()
+
+    # ---------- geometry ----------
+    def _track_area(self):
+        w = int(self.winfo_width()); h = int(self.winfo_height())
+        return (self.PAD, self.BTN_H, w - self.PAD, h - self.BTN_H)
+
+    def _triangle_pts(self, top=True, inset=0):
+        w = int(self.winfo_width()); h = int(self.winfo_height())
+        L = self.PAD + inset
+        R = w - self.PAD - inset
+        if top:
+            A = (w//2, self.EDGE_SAFE + inset)
+            B = (R,    self.BTN_H - self.EDGE_SAFE - inset)
+            C = (L,    self.BTN_H - self.EDGE_SAFE - inset)
         else:
-            self._show_now()
-        return
-
-    # pill thumb helper: center rectangle + two rounded caps
-    def _draw_pill(self, x0, y0, x1, y1, fill, outline, width=1):
-        try:
-            r = int(min(x1 - x0, y1 - y0) // 2)
-            body = self.create_rectangle(x0 + r, y0, x1 - r, y1, fill=fill, outline=outline, width=width)
-            self.create_oval(x0, y0, x0 + 2*r, y0 + 2*r, fill=fill, outline=outline, width=width)
-            self.create_oval(x1 - 2*r, y1 - 2*r, x1, y1, fill=fill, outline=outline, width=width)
-            return body
-        except Exception:
-            return self.create_rectangle(x0, y0, x1, y1, fill=fill, outline=outline, width=width)
-
-    # Text wheel → forward to yview
-    def _wheel(self, evt):
-        if not self._text: return
-        delta_lines = -1 * (evt.delta // 120)
-        self._text.yview_scroll(delta_lines, "units")
-        self._show_now()
-
-    # If cursor near right inside edge of text area, reveal the bar
-    def _edge_probe(self, evt):
-        try:
-            w = evt.widget.winfo_width()
-            if evt.x >= max(0, w - self._hover_zone_px):
-                self._show_now()
-            else:
-                self._schedule_hide()
-        except Exception:
-            pass
-
-    # Keyboard arrows: scroll & reveal
-    def _on_arrow(self, evt):
-        if not self._text: return
-        try:
-            if evt.keysym == "Up":
-                self._text.yview_scroll(-3, "units")
-            elif evt.keysym == "Down":
-                self._text.yview_scroll(3, "units")
-            else:
-                return
-            self._show_now()
-            self._schedule_hide()
-        except Exception:
-            pass
-
-    def _show_now(self, _evt=None):
-        if not self._visible:
-            self.grid()  # ensure it's gridded
-            self._visible = True
-        # cancel pending hide
-        if self._hide_after_id:
-            try: self.after_cancel(self._hide_after_id)
-            except Exception: pass
-            self._hide_after_id = None
-        self._redraw()
-
-    def _schedule_hide(self, _evt=None):
-        if self._dragging: return
-        if self._hide_after_id:
-            try: self.after_cancel(self._hide_after_id)
-            except Exception: pass
-        self._hide_after_id = self.after(700, self._hide_now)
-
-    def _hide_now(self):
-        if self._dragging: return
-        if self._visible:
-            self.grid_remove()
-            self._visible = False
+            A = (w//2,  h - self.EDGE_SAFE - inset)
+            B = (R,     h - self.BTN_H + self.EDGE_SAFE + inset)
+            C = (L,     h - self.BTN_H + self.EDGE_SAFE + inset)
+        return (*A, *B, *C)
 
     def _thumb_rect(self):
-        H = max(1, self.winfo_height())
-        top = int(H * self._first)
-        bot = int(H * self._last)
-        if bot - top < self._min_thumb_px:
+        x0, y0, x1, y1 = self._track_area()
+        H = max(1, y1 - y0)
+        top = int(y0 + H * self._first)
+        bot = int(y0 + H * self._last)
+        if bot - top < self.MIN_THUMB:
             mid = (top + bot) // 2
-            top = max(0, mid - self._min_thumb_px // 2)
-            bot = min(H, top + self._min_thumb_px)
-        # small insets
-        x0, x1 = 2, max(2, self.winfo_width() - 2)
-        return x0, top, x1, bot
+            top = max(y0, mid - self.MIN_THUMB // 2)
+            bot = min(y1, top + self.MIN_THUMB)
+        return int(x0), int(top), int(x1), int(bot)
+
+    # ---------- drawing ----------
+    def _draw_triangle_pair(self, top=True):
+        fill_pts   = self._triangle_pts(top=top, inset=0)
+        stroke_pts = self._triangle_pts(top=top, inset=self.EDGE_SAFE)
+        fill_poly  = self.create_polygon(*fill_pts,   fill=self._fill_black, outline="")
+        stroke     = self.create_polygon(*stroke_pts, fill="", outline=self.accent,
+                                         width=self.STROKE_W, joinstyle="miter")
+        if top:  self._btn_up_fill, self._btn_up = fill_poly, stroke
+        else:    self._btn_dn_fill, self._btn_dn = fill_poly, stroke
+
+    def _draw_rect_thumb(self, x0, y0, x1, y1, bind_drag=True):
+        s = self.EDGE_SAFE
+        self._thumb_fill   = self.create_rectangle(x0, y0, x1, y1, fill=self._fill_black, outline="")
+        self._thumb_border = self.create_rectangle(x0 + s, y0, x1 - s, y1, fill="", outline=self.accent, width=self.STROKE_W)
+        if bind_drag:
+            self.tag_bind(self._thumb_fill, "<ButtonPress-1>",   self._start_drag)
+            self.tag_bind(self._thumb_fill, "<B1-Motion>",       self._on_drag)
+            self.tag_bind(self._thumb_fill, "<ButtonRelease-1>", self._on_release)
 
     def _redraw(self):
         self.delete("all")
-        w = self.winfo_width(); h = self.winfo_height()
-        # track
-        self.create_rectangle(0, 0, w, h, fill=STAR_BG, outline="")
-        self.create_rectangle(2, 2, w - 2, h - 2, fill=self._track_color, outline="")
-        # thumb only if scrollable
-        if self._last - self._first >= 0.9999:
+        w = int(self.winfo_width()); h = int(self.winfo_height())
+        if w <= 2 or h <= 2:
+            self._drawn = False
             return
-        x0, y0, x1, y1 = self._thumb_rect()
-        # slight inset for neat edges
-        x0 += 1; x1 -= 1
-        self._thumb_id = self._draw_pill(x0, y0, x1, y1, fill=self._thumb_fill, outline=self.accent, width=1)
+        # track & bg
+        self.create_rectangle(0, 0, w, h, fill=STAR_BG, outline="")
+        self.create_rectangle(2, 2, w-2, h-2, fill=self._track_color, outline="")
+        # triangles
+        self._draw_triangle_pair(top=True)
+        self._draw_triangle_pair(top=False)
+        # clicks on arrows (stroke + fill)
+        for stroke, fill, dirn in (
+            (self._btn_up, self._btn_up_fill, -1),
+            (self._btn_dn, self._btn_dn_fill, +1),
+        ):
+            for item in (stroke, fill):
+                self.tag_bind(item, "<ButtonPress-1>",  lambda e, d=dirn: (self._press_button(d), self._poke()))
+                self.tag_bind(item, "<ButtonRelease-1>", self._stop_repeat)
+                self.tag_bind(item, "<Leave>",           self._stop_repeat)
+        # thumb
+        tx0, ty0, tx1, ty1 = self._track_area()
+        self._scrollable = (self._last - self._first) < 0.9999
+        if self._scrollable:
+            x0, y0, x1, y1 = self._thumb_rect()
+            self._draw_rect_thumb(x0, y0, x1, y1, bind_drag=True)
+        else:
+            cy = (ty0 + ty1) // 2
+            y0 = cy - self.MIN_THUMB // 2
+            y1 = y0 + self.MIN_THUMB
+            self._draw_rect_thumb(tx0, y0, tx1, y1, bind_drag=False)
+        self._drawn = True
 
-    # Mouse interactions
+    # ---------- input handlers ----------
+    def _wheel(self, evt):
+        if not self._text: return
+        self._text.yview_scroll(-1 * (evt.delta // 120), "units")
+        self._sync_from_text(repaint=True)
+        self._show_now()
+
+    def _edge_probe(self, evt):
+        try:
+            w = evt.widget.winfo_width()
+            if evt.x >= max(0, w - self.HOVER_ZONE_PX):
+                self._show_now()
+        except Exception:
+            pass
+
+    def _on_arrow(self, evt):
+        if not self._text: return
+        if   evt.keysym == "Up":   self._text.yview_scroll(-3, "units")
+        elif evt.keysym == "Down": self._text.yview_scroll(3, "units")
+        else: return
+        self._sync_from_text(repaint=True)
+        self._show_now()
+
     def _on_click(self, evt):
         if not self._text: return
+        x0, y0, x1, y1 = self._thumb_rect()
+        if y0 <= evt.y <= y1 and self._scrollable:
+            self._start_drag(evt); return
+        tx0, ty0, tx1, ty1 = self._track_area()
+        if ty0 <= evt.y <= ty1:
+            self._text.yview_scroll(-1 if evt.y < y0 else +1, "pages")
+            self._sync_from_text(repaint=True)
+            self._show_now()
+
+    def _start_drag(self, evt):
+        if not self._scrollable: return
         self._dragging = True
-        _, y0, _, y1 = self._thumb_rect()
-        self._drag_offset = evt.y - y0 if (y0 <= evt.y <= y1) else (self._min_thumb_px // 2)
-        self._jump_to(evt.y)
-        self._show_now()
+        _, y0, _, _ = self._thumb_rect()
+        self._drag_offset = int(evt.y) - int(y0)
+        self._jump_to(evt.y); self._show_now()
 
     def _on_drag(self, evt):
-        if not self._dragging or not self._text: return
+        if not (self._dragging and self._text and self._scrollable): return
         self._jump_to(evt.y)
 
-    def _on_release(self, _evt):
+    def _on_release(self, _evt=None):
         self._dragging = False
-        self._schedule_hide()
+        self._poke()
 
     def _jump_to(self, y):
-        h = max(1, self.winfo_height() - self._min_thumb_px)
-        frac = max(0.0, min(1.0, (y - self._drag_offset) / h))
+        _, ty0, _, ty1 = self._track_area()
+        track_h = max(1, (ty1 - ty0) - self.MIN_THUMB)
+        frac = max(0.0, min(1.0, (int(y) - ty0 - self._drag_offset) / track_h))
         try:
             self._text.yview_moveto(frac)
+            self._sync_from_text(repaint=True)
         except Exception:
             pass
 
-    # allow external accent update
+    def _press_button(self, direction: int):
+        if not self._text: return
+        self._text.yview_scroll(-3 if direction < 0 else 3, "units")
+        self._sync_from_text(repaint=True)
+        self._show_now()
+        self._stop_repeat()
+        self._repeat_id = self.after(60, lambda: self._press_button(direction))
+
+    def _stop_repeat(self, *_):
+        if self._repeat_id:
+            try: self.after_cancel(self._repeat_id)
+            except Exception: pass
+            self._repeat_id = None
+
+    # ---------- visibility (watchdog; no flicker) ----------
+    def _is_pointer_near_edge(self) -> bool:
+        try:
+            if not self._text: return False
+            rx = self._text.winfo_rootx()
+            ry = self._text.winfo_rooty()
+            w  = self._text.winfo_width()
+            h  = self._text.winfo_height()
+            px = self._text.winfo_pointerx()
+            py = self._text.winfo_pointery()
+            inside_y = ry <= py <= ry + h
+            return inside_y and (px >= rx + w - self.HOVER_ZONE_PX)
+        except Exception:
+            return False
+
+    def _watchdog_tick(self):
+        # keep alive if near, hovering, or dragging
+        if self._hovering or self._dragging or self._is_pointer_near_edge():
+            self._poke()
+        if self._drawn and (time.monotonic() - self._last_alive) < self.SHOW_SECS:
+            self._watchdog_id = self.after(self.POLL_MS, self._watchdog_tick)
+        else:
+            self._watchdog_id = None
+            self._hide_now()
+
+    def _start_watchdog(self):
+        if not self._watchdog_id:
+            self._watchdog_id = self.after(self.POLL_MS, self._watchdog_tick)
+
+    def _show_now(self, *_):
+        if not self._drawn:
+            self._redraw()
+        self._poke()
+        self._start_watchdog()
+
+    def _hide_now(self):
+        if self._dragging or self._hovering or self._is_pointer_near_edge():
+            self._poke(); self._start_watchdog(); return
+        self._clear_drawings()
+        if self._watchdog_id:
+            try: self.after_cancel(self._watchdog_id)
+            except Exception: pass
+            self._watchdog_id = None
+
+    # ---------- theming ----------
     def set_accent(self, accent_hex: str):
         self.accent = accent_hex or self.accent
-        try:
-            if self._thumb_id:
-                self.itemconfig(self._thumb_id, outline=self.accent)
-        except Exception:
-            pass
-
-    def _maybe_hover(self, evt):
-        # keep visible while hovering over bar area
-        self._show_now()
-        self._schedule_hide()
-
+        if self._drawn:
+            try:
+                if self._btn_up:       self.itemconfig(self._btn_up,       outline=self.accent)
+                if self._btn_dn:       self.itemconfig(self._btn_dn,       outline=self.accent)
+                if self._thumb_border: self.itemconfig(self._thumb_border, outline=self.accent)
+            except Exception: pass
+            self._redraw()
+            
 # ----------------------------- Main GUI -----------------------------
 class NovaGUI:
     def __init__(self):
@@ -494,15 +678,69 @@ class NovaGUI:
 
         # Build hidden, then show with no flicker
         self.root = tk.Tk()
+
+        self.root.wm_class("Nova")  # lets GNOME/KDE match the launcher icon
+        try:
+            self.root.iconphoto(True, tk.PhotoImage(file=resource_path(os.path.join("assets", "nova_icon_256.png"))))
+        except Exception:
+            pass
+
+        # ⬇️ Linux/WSL font fallback so Hindi (and other scripts) render correctly
+        # (Do this BEFORE withdraw/deiconify so widgets inherit it.)
+        if os.name != "nt":
+            try:
+                # Prefer Noto Sans Devanagari; fall back to Noto Sans if missing.
+                preferred = "Noto Sans Devanagari"
+                fallback  = "Noto Sans"
+                from tkinter import font as tkfont
+                def _set_family(font_name: str):
+                    try:
+                        f = tkfont.nametofont(font_name)
+                        # If Devanagari isn't present, this still helps with box glyphs.
+                        f.configure(family=preferred)
+                    except Exception:
+                        try:
+                            f = tkfont.nametofont(font_name)
+                            f.configure(family=fallback)
+                        except Exception:
+                            pass
+                for fam in ("TkDefaultFont","TkTextFont","TkFixedFont","TkMenuFont","TkHeadingFont"):
+                    _set_family(fam)
+            except Exception:
+                pass
+
         self.root.withdraw()
         self.root.title("NOVA - AI Assistant")
+        try:
+            self.root.iconbitmap(resource_path("nova_icon_big.ico"))
+        except Exception:
+            pass
 
         # Wider so pills never clip
         W, H = 820, 680
+
+        IS_LINUX_OR_WSL_LOCAL = IS_LINUX_OR_WSL
+
+        # On Linux/WSL: keep height conservative so nothing hides under the Windows taskbar shown by WSLg
+        if IS_LINUX_OR_WSL_LOCAL:
+            try:
+                sw = self.root.winfo_screenwidth()
+                sh = self.root.winfo_screenheight()
+                SAFE_DECOR = 120  # titlebar + bottom panel allowance
+                H = min(H, max(560, sh - SAFE_DECOR))
+            except Exception:
+                pass
+
         self.root.geometry(f"{W}x{H}")
-        position_main_window(self.root, W, H)  # compute final position BEFORE showing
+        position_main_window(self.root, W, H)
         self.root.configure(bg=STAR_BG)
-        self.root.resizable(False, False)
+
+        if IS_LINUX_OR_WSL_LOCAL:
+            self.root.resizable(True, True)
+            # allow smaller than initial, so you can pull bottom widgets into view if needed
+            self.root.minsize(max(540, W - 140), 540)
+        else:
+            self.root.resizable(False, False)
 
         # Starry background
         self._bg_img = make_starry_bg(W, H)
@@ -526,8 +764,8 @@ class NovaGUI:
             image = Image.open(image_path).resize((120, 120), Image.LANCZOS)
             self.nova_photo = ImageTk.PhotoImage(image)
         except Exception:
-            fallback = Image.new("RGBA", (120,120), (0,0,0,0))
-            self.nova_photo = ImageTk.PhotoImage(fallback)
+            fallback_img = Image.new("RGBA", (120,120), (0,0,0,0))
+            self.nova_photo = ImageTk.PhotoImage(fallback_img)
 
         self.face_center = (80, 80)
         self.face_orbit_r = 10
@@ -557,9 +795,12 @@ class NovaGUI:
         chat_wrap = tk.Frame(self.root, bg=STAR_BG)
         chat_wrap.pack(padx=10, pady=5, fill="x")
 
+        # ⬇️ Use a Linux-friendly font for text widgets so glyphs don't show as □□
+        chat_font = ("Consolas", 10) if os.name == "nt" else ("Noto Sans Devanagari", 10)
+
         self.text_display = tk.Text(
             chat_wrap, height=18, width=86, bg="#111116",
-            fg=self.glow_color, font=("Consolas", 10), bd=0,
+            fg=self.glow_color, font=chat_font, bd=0,
             wrap="word"
         )
 
@@ -688,15 +929,14 @@ class NovaGUI:
         self.mic_canvas.bind("<Button-1>", self._on_mic_click)   # ← CLICK TO TALK (Wake OFF)
         self.mic_tooltip = Tooltip(self.mic_canvas, text="Click the mic to talk 🎤")
 
+        # ---- BOOL wake-mode at init (changed)
         from utils import get_wake_mode
-        self.wake_status = tk.StringVar()
-        _mode = get_wake_mode()
-        _is_on = _mode in ("on", "always_on")
-        self.wake_status.set("Wake Mode: ON" if _is_on else "Wake Mode: OFF")
+        _is_on = bool(get_wake_mode())
+        initial_label = "Wake Mode: ON" if _is_on else "Wake Mode: OFF"
 
-        # Your original comfy button — now bigger
+        # Your original comfy button — now bigger (NO textvariable)
         self.wake_button = tk.Button(
-            self.root, textvariable=self.wake_status,
+            self.root, text=initial_label,
             command=self._toggle_wake_mode,
             bg="#10131a", fg=self.glow_color,
             activebackground="#10131a", activeforeground=self.glow_color,
@@ -712,6 +952,14 @@ class NovaGUI:
         self.external_callback = None
         self._start_idle_check()
         self.input_entry.bind("<Return>", lambda event: self._on_send())
+
+        # ---- Before reveal: Linux sizing pass so bottom never clips
+        self.root.update_idletasks()
+        _fit_linux_size(self.root, bottom_margin=72)
+
+        # Apply smaller inner sizes on Linux/WSL so nothing clips (window size unchanged)
+        if IS_LINUX_OR_WSL_LOCAL:
+            self._compact_linux_ui()
 
         # ---- Reveal window with no flicker:
         # 1) final geometry already set; 2) show at alpha=0; 3) safe clamp pass; 4) fade in.
@@ -730,6 +978,10 @@ class NovaGUI:
         # Re-clamp on configure (move/resize) to keep bottom clear AND refresh patches
         self.root.bind("<Configure>", lambda e: (self._ensure_above_taskbar(), self._refresh_bg_patches()))
 
+        # Re-center on map events in WSLg (handles reparenting quirks)
+        if IS_LINUX_OR_WSL_LOCAL:
+            self.root.bind("<Map>", lambda e: _linux_center_after_map(self.root))
+
     # ---- exact background crops for seamless canvases ----
     def _crop_from_bg(self, x, y, w, h):
         """Crop a WxH patch from the main starfield at window-local (x,y)."""
@@ -747,18 +999,22 @@ class NovaGUI:
             rx = self.root.winfo_rootx()
             ry = self.root.winfo_rooty()
 
-            # Logo canvas (160x160)
+            # Logo canvas (use live size)
             lx = self.logo_canvas.winfo_rootx() - rx
             ly = self.logo_canvas.winfo_rooty() - ry
-            p1 = self._crop_from_bg(lx, ly, 160, 160)
+            lw = max(1, self.logo_canvas.winfo_width())
+            lh = max(1, self.logo_canvas.winfo_height())
+            p1 = self._crop_from_bg(lx, ly, lw, lh)
             if p1:
                 self.logo_canvas.itemconfig(self.logo_bg_item, image=p1)
                 self.logo_canvas._bg_patch_ref = p1  # prevent GC
 
-            # Mic canvas (40x40)
+            # Mic canvas (use live size)
             mx = self.mic_canvas.winfo_rootx() - rx
             my = self.mic_canvas.winfo_rooty() - ry
-            p2 = self._crop_from_bg(mx, my, 40, 40)
+            mw = max(1, self.mic_canvas.winfo_width())
+            mh = max(1, self.mic_canvas.winfo_height())
+            p2 = self._crop_from_bg(mx, my, mw, mh)
             if p2:
                 self.mic_canvas.itemconfig(self.mic_bg_item, image=p2)
                 self.mic_canvas._bg_patch_ref = p2
@@ -769,19 +1025,32 @@ class NovaGUI:
         """If the window bottom drifts below the current work-area, nudge it up."""
         try:
             wa = _windows_work_area_for_root(self.root)
-            if not wa:
+            if wa:
+                # ✅ Windows behavior unchanged
+                l, t, r, b = wa
+                safe = 12
+                geo = self.root.winfo_geometry()
+                parts = geo.split("+")
+                w, h = map(int, parts[0].split("x"))
+                x = int(parts[1]); y = int(parts[2])
+                bottom = y + h
+                max_y = b - h - safe
+                if bottom > (b - safe):
+                    y = max(t + 8, max_y)
+                    self.root.geometry(f"{w}x{h}+{x}+{y}")
                 return
-            l, t, r, b = wa
-            safe = 12
-            geo = self.root.winfo_geometry()
-            parts = geo.split("+")
-            w, h = map(int, parts[0].split("x"))
-            x = int(parts[1]); y = int(parts[2])
-            bottom = y + h
-            max_y = b - h - safe
-            if bottom > (b - safe):
-                y = max(t + 8, max_y)
-                self.root.geometry(f"{w}x{h}+{x}+{y}")
+
+            # ⬇️ Linux/WSL fallback: clamp to screen height with a bigger bottom guard
+            if IS_LINUX_OR_WSL:
+                sh = self.root.winfo_screenheight()
+                safe = 72
+                geo = self.root.winfo_geometry()
+                parts = geo.split("+")
+                w, h = map(int, parts[0].split("x"))
+                x = int(parts[1]); y = int(parts[2])
+                if (y + h) > (sh - safe):
+                    y = max(8, sh - h - safe)
+                    self.root.geometry(f"{w}x{h}+{x}+{y}")
         except Exception:
             pass
 
@@ -792,12 +1061,13 @@ class NovaGUI:
             pass
 
     def _reveal_window_fade_in(self):
-        # geometry already set to the final spot by position_main_window()
         self._set_alpha(0.0)
         self.root.deiconify()
         self.root.update_idletasks()
-        # one safe placement pass (invisible), then fade in
-        _place_main_window_safely(self.root, y_percent=0.26, bottom_margin=64)
+        margin = 120 if IS_LINUX_OR_WSL else 64
+        _place_main_window_safely(self.root, y_percent=0.26, bottom_margin=margin)
+        if IS_LINUX_OR_WSL:
+            _linux_center_after_map(self.root)
         self.root.after(260, lambda: (self._set_alpha(1.0), self._ensure_above_taskbar()))
 
     # ---------- animate logo + sparkles (time-based; ~30 FPS) ----------
@@ -930,32 +1200,93 @@ class NovaGUI:
             self.root.after(80, animate)
         self.root.after(800, animate)
 
+    # ---------- compact Linux layout (shrink inside, not the window) ----------
+    def _compact_linux_ui(self):
+        """Shrink inner widgets only on Linux/WSLg so everything fits without shrinking the window."""
+        if not IS_LINUX_OR_WSL:
+            return
+        try:
+            # Logo & sparkles smaller
+            self.logo_canvas.config(width=128, height=128)
+            try: self.logo_canvas.pack_configure(pady=(4, 0))
+            except Exception: pass
+            self.face_center = (64, 64)
+            self.sparkle_r = 54
+            try:
+                self.logo_canvas.coords(self.face_id, *self.face_center)
+            except Exception:
+                pass
+
+            # Status bar & checkboxes tighter
+            try: self.status_bar.pack_configure(pady=(0, 4))
+            except Exception: pass
+            self.checkbox_canvas.config(height=36)
+            try: self.checkbox_canvas.pack_configure(pady=(0, 6))
+            except Exception: pass
+            for cb in getattr(self, "_cb_widgets", []):
+                try: cb.config(font=("Consolas", 10, "bold"))
+                except Exception: pass
+
+            # Chat box fewer visible rows; input a bit narrower
+            self.text_display.config(height=14, width=80)
+            self.input_entry.config(width=54, font=("Consolas", 10))
+
+            # Buttons slightly narrower
+            self.send_button.config(width=10)
+            self.clear_button.config(width=10)
+
+            # Mic closer to input
+            try: self.mic_canvas.pack_configure(pady=0)
+            except Exception: pass
+
+            # Ensure min-size is still sane relative to screen
+            self.root.update_idletasks()
+            _fit_linux_size(self.root, bottom_margin=72)
+        except Exception:
+            pass
+
     # ---------- messaging / input ----------
+    def _dispatch_in_background(self, user_text: str):
+        """Run processing in a worker so the UI never blocks."""
+        def worker():
+            try:
+                if callable(self.external_callback):
+                    # Main wires this to process_command & schedule_idle_prompt
+                    self.external_callback(user_text)
+                    return
+            except Exception:
+                pass
+            # Fallback: direct invoke (kept for safety)
+            try:
+                from core_engine import process_command
+                process_command(
+                    user_text,
+                    is_math_override=self.math_mode_var.get(),
+                    is_plot_override=self.plot_mode_var.get(),
+                    is_physics_override=self.physics_mode_var.get(),
+                    is_chemistry_override=self.chemistry_mode_var.get(),
+                )
+            except TypeError:
+                # older core signature
+                from core_engine import process_command
+                process_command(
+                    user_text,
+                    is_math_override=self.math_mode_var.get(),
+                    is_plot_override=self.plot_mode_var.get(),
+                    is_physics_override=self.physics_mode_var.get(),
+                )
+            except Exception:
+                pass
+        threading.Thread(target=worker, daemon=True).start()
+
     def _on_send(self):
+        # ECHO YOU FIRST: print user line immediately & clear input.
         user_text = self.input_entry.get().strip()
         if user_text:
             self.show_message("YOU", user_text)
             self.input_entry.delete(0, tk.END)
-            from core_engine import process_command
-            is_math   = self.math_mode_var.get()
-            is_plot   = self.plot_mode_var.get()
-            is_physics= self.physics_mode_var.get()
-            is_chem   = self.chemistry_mode_var.get()
-            try:
-                process_command(
-                    user_text,
-                    is_math_override=is_math,
-                    is_plot_override=is_plot,
-                    is_physics_override=is_physics,
-                    is_chemistry_override=is_chem
-                )
-            except TypeError:
-                process_command(
-                    user_text,
-                    is_math_override=is_math,
-                    is_plot_override=is_plot,
-                    is_physics_override=is_physics
-                )
+            # Hand off work on a worker thread (or to external_callback)
+            self._dispatch_in_background(user_text)
         self.input_entry.focus_set()
 
     def _on_clear(self):
@@ -979,32 +1310,40 @@ class NovaGUI:
             "de": {"on": "🎤 Sag „Hey Nova“ oder tippe unten.", "off": "🎤 Klicke auf das Mikro, um zu sprechen, oder tippe unten."},
             "es": {"on": "🎤 Di «Hey Nova» o escribe abajo.", "off": "🎤 Haz clic en el micrófono para hablar, o escribe abajo."}
         }
-        mode = get_wake_mode()
-        if mode == "always_on": mode = "on"
-        msg = mode_texts.get(self.language, mode_texts["en"]).get(mode, "🎤 Click the mic to talk, or type below.")
+        # ---- BOOL wake-mode (changed)
+        is_on = bool(get_wake_mode())
+        key = "on" if is_on else "off"
+        msg = mode_texts.get(self.language, mode_texts["en"])[key]
         self.typing_label.config(text=msg)
 
+    def set_wake_label(self, is_on: bool):
+        """Public helper so external code can update the wake label cleanly."""
+        try:
+            self.wake_button.config(text=("Wake Mode: ON" if is_on else "Wake Mode: OFF"))
+        except Exception:
+            pass
+
     def _toggle_wake_mode(self):
+        # ---- BOOL wake-mode (changed)
         from utils import get_wake_mode, set_wake_mode
-        current_mode = get_wake_mode()
-        if current_mode in ("on", "always_on"):
+        if get_wake_mode():  # currently ON
             set_wake_mode(False)
             try:
                 from wake_word_listener import stop_wake_listener_thread
                 stop_wake_listener_thread()
             except Exception:
                 pass
-            self.wake_status.set("Wake Mode: OFF")
+            self.set_wake_label(False)
             self.update_mic_icon(False)
             self.show_message("NOVA", "Wake mode disabled. Click the mic to talk or type below.")
-        else:
+        else:  # currently OFF
             set_wake_mode(True)
             try:
                 from wake_word_listener import start_wake_listener_thread
                 start_wake_listener_thread()
             except Exception:
                 pass
-            self.wake_status.set("Wake Mode: ON")
+            self.set_wake_label(True)
             self.update_mic_icon(True)
             self.show_message("NOVA", "Wake mode enabled. Say 'Hey Nova' to begin.")
         self.update_typing_label()
@@ -1031,13 +1370,26 @@ class NovaGUI:
             self.pulse_circle = None
 
     def _pulse_animation(self):
-        if not self.glow_active: return
+        if not self.glow_active:
+            return
         if self.pulse_circle:
             self.mic_canvas.delete(self.pulse_circle)
+
         r = self.pulse_radius
-        self.pulse_circle = self.mic_canvas.create_oval(20 - r, 20 - r, 20 + r, 20 + r, outline=self.glow_color, width=2)
-        self.pulse_radius += 1 if self.pulse_growing else -1
-        self.pulse_growing = not (self.pulse_radius in (22, 28))
+        self.pulse_circle = self.mic_canvas.create_oval(
+            20 - r, 20 - r, 20 + r, 20 + r, outline=self.glow_color, width=2
+        )
+
+        # bounce smoothly between 22 and 28
+        if self.pulse_growing:
+            self.pulse_radius += 1
+            if self.pulse_radius >= 28:
+                self.pulse_growing = False
+        else:
+            self.pulse_radius -= 1
+            if self.pulse_radius <= 22:
+                self.pulse_growing = True
+
         self.root.after(80, self._pulse_animation)
 
     def _start_hover_glow(self, event=None):
@@ -1051,8 +1403,9 @@ class NovaGUI:
 
     # ---- Push-to-talk flow (one-shot) ----
     def _on_mic_click(self, _evt=None):
+        # ---- BOOL wake-mode gate (changed)
         from utils import get_wake_mode
-        if get_wake_mode() in ("on", "always_on"):
+        if get_wake_mode():
             self.show_message("NOVA", "Wake Mode is on — just say 'Hey Nova'.")
             return
         if self._ptt_busy:
@@ -1072,9 +1425,28 @@ class NovaGUI:
     def _ptt_handle_result(self, text: str):
         self.stop_pulse()
         self._ptt_busy = False
+
         if not text:
-            self.show_message("NOVA", "Sorry, I didn’t catch that. Please try again.")
+            # Suppress GUI apology during guided flows (name/lang capture handle their own nudges)
+            try:
+                import utils
+                if (
+                    getattr(utils, "NAME_CAPTURE_IN_PROGRESS", False)
+                    or getattr(self, "language_capture_active", False)
+                    or getattr(self, "name_capture_active", False)
+                    or getattr(utils, "LANGUAGE_FLOW_ACTIVE", False)
+                ):
+                    return
+            except Exception:
+                pass
+
+            # Suppress GUI apology during the global mute/suppress window
+            if time.time() < getattr(utils, "SUPPRESS_SR_TTS_PROMPTS_UNTIL", 0.0):
+                return
+            # Normal miss: show one apology from GUI
+            self.show_message("NOVA", "Sorry, I didn't catch that. Could you please repeat?")
             return
+
         self.show_message("YOU", text)
         from core_engine import process_command
         try:
@@ -1144,6 +1516,22 @@ def append_mode_solution(mode_key: str, text: str):
         g.root.after(0, lambda: g.append_solution(text))
     except Exception:
         pass
+
+# ---- Lazy proxy so utils.gui_callback can always call nova_gui.root.after(...) safely
+class _NovaGUIProxy:
+    @property
+    def root(self):
+        g = gui_if_ready()
+        if g:
+            return g.root
+        # If GUI not created yet, return a tiny object with a no-op 'after'
+        class _NoOp:
+            def after(self, *_args, **_kwargs):
+                pass
+        return _NoOp()
+
+# exported name expected by utils.py
+nova_gui = _NovaGUIProxy()
 
 import utils
 def _gui_solution_bridge(channel, payload):
@@ -1259,3 +1647,4 @@ def _gui_solution_bridge(channel, payload):
         pass
 
 set_gui_callback(_gui_solution_bridge)
+

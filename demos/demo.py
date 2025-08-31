@@ -148,6 +148,10 @@ class SolutionPopup(tk.Toplevel):
     def __init__(self, master, mode="Chemistry", emoji="🧪", first_answer="", **kw):
         super().__init__(master, **kw)
         self.title("Solution")
+        try:
+            self.iconbitmap(resource_path("nova_icon_big.ico"))
+        except Exception:
+            pass
         self.configure(bg=BG)
         self.geometry("920x660+180+120")
         self.minsize(680, 480)

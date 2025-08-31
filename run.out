@@ -1,0 +1,10 @@
+/mnt/c/Users/user/Documents/nova_ai_assistant/.venv_wsl/lib/python3.12/site-packages/speech_recognition/__init__.py:7: DeprecationWarning: 'aifc' is deprecated and slated for removal in Python 3.13
+  import aifc
+/mnt/c/Users/user/Documents/nova_ai_assistant/.venv_wsl/lib/python3.12/site-packages/speech_recognition/__init__.py:8: DeprecationWarning: 'audioop' is deprecated and slated for removal in Python 3.13
+  import audioop
+Executing <Task pending name='Task-1' coro=<EdgeSynth.speak.<locals>._run() running at /mnt/c/Users/user/Documents/nova_ai_assistant/tts_driver.py:162> wait_for=<Future pending cb=[_chain_future.<locals>._call_check_cancel() at /usr/lib/python3.12/asyncio/futures.py:387, Task.task_wakeup()] created at /usr/lib/python3.12/asyncio/base_events.py:449> cb=[_run_until_complete_cb() at /usr/lib/python3.12/asyncio/base_events.py:182] created at /usr/lib/python3.12/asyncio/runners.py:100> took 0.245 seconds
+⬇️  Downloading periodic table from https://raw.githubusercontent.com/Bowserinator/Periodic-Table-JSON/master/PeriodicTableJSON.json …
+✅ Saved full periodic table to /mnt/c/Users/user/Documents/nova_ai_assistant/data/chemistry_table.json
+/usr/lib/python3.12/asyncio/selector_events.py:879: ResourceWarning: unclosed transport <_SelectorSocketTransport fd=11>
+  _warn(f"unclosed transport {self!r}", ResourceWarning, source=self)
+ResourceWarning: Enable tracemalloc to get the object allocation traceback

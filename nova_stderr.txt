@@ -1,0 +1,107 @@
+[PYI-12867:DEBUG] PyInstaller Bootloader 6.x
+[PYI-12867:DEBUG] LOADER: argv[0]: ./NOVA
+[PYI-12867:DEBUG] LOADER: executable file: /mnt/c/Users/user/Documents/nova_ai_assistant/dist/NOVA_Linux/NOVA
+[PYI-12867:DEBUG] LOADER: trying to load executable-embedded archive...
+[PYI-12867:DEBUG] LOADER: attempting to open archive /mnt/c/Users/user/Documents/nova_ai_assistant/dist/NOVA_Linux/NOVA
+[PYI-12867:DEBUG] LOADER: cookie found at offset 0x6F019F6
+[PYI-12867:DEBUG] LOADER: archive file: /mnt/c/Users/user/Documents/nova_ai_assistant/dist/NOVA_Linux/NOVA
+[PYI-12867:DEBUG] LOADER: application has onefile semantics...
+[PYI-12867:DEBUG] LOADER: _PYI_ARCHIVE_FILE not defined...
+[PYI-12867:DEBUG] LOADER: parent process level = -2
+[PYI-12867:DEBUG] LOADER: process level = 0
+[PYI-12867:DEBUG] LOADER: storing process name: NOVA
+[PYI-12867:DEBUG] LOADER: this is parent process of onefile application.
+[PYI-12867:DEBUG] LOADER: creating temporary directory (runtime_tmpdir=(null))...
+[PYI-12867:DEBUG] LOADER: created temporary directory: /tmp/_MEIumg8TN
+[PYI-12867:DEBUG] LOADER: setting _PYI_APPLICATION_HOME_DIR to /tmp/_MEIumg8TN
+[PYI-12867:DEBUG] LOADER: application's top-level directory: /tmp/_MEIumg8TN
+[PYI-12867:DEBUG] LOADER: setting LD_LIBRARY_PATH=/tmp/_MEIumg8TN
+[PYI-12867:DEBUG] LOADER: splash screen is unavailable.
+[PYI-12867:DEBUG] LOADER: extracting files to temporary directory...
+[PYI-12867:DEBUG] LOADER: starting the child process...
+[PYI-12867:DEBUG] LOADER: creating sync semaphore...
+[PYI-12867:DEBUG] LOADER: forked child process with PID: 12868
+[PYI-12868:DEBUG] LOADER: waiting on sync semaphore...
+[PYI-12867:DEBUG] LOADER: registering signal handlers to forward received signals to child.
+[PYI-12867:DEBUG] LOADER: signalling the sync semaphore...
+[PYI-12868:DEBUG] LOADER: starting child process via execvp
+[PYI-12868:DEBUG] PyInstaller Bootloader 6.x
+[PYI-12868:DEBUG] LOADER: argv[0]: ./NOVA
+[PYI-12868:DEBUG] LOADER: executable file: /mnt/c/Users/user/Documents/nova_ai_assistant/dist/NOVA_Linux/NOVA
+[PYI-12868:DEBUG] LOADER: trying to load executable-embedded archive...
+[PYI-12868:DEBUG] LOADER: attempting to open archive /mnt/c/Users/user/Documents/nova_ai_assistant/dist/NOVA_Linux/NOVA
+[PYI-12868:DEBUG] LOADER: cookie found at offset 0x6F019F6
+[PYI-12868:DEBUG] LOADER: archive file: /mnt/c/Users/user/Documents/nova_ai_assistant/dist/NOVA_Linux/NOVA
+[PYI-12868:DEBUG] LOADER: application has onefile semantics...
+[PYI-12868:DEBUG] LOADER: _PYI_ARCHIVE_FILE already defined: /mnt/c/Users/user/Documents/nova_ai_assistant/dist/NOVA_Linux/NOVA
+[PYI-12868:DEBUG] LOADER: using same archive file as parent environment!
+[PYI-12868:DEBUG] LOADER: parent process level = 0
+[PYI-12868:DEBUG] LOADER: process level = 1
+[PYI-12868:DEBUG] LOADER: restoring process name: NOVA
+[PYI-12868:DEBUG] LOADER: this is child process of onefile application (main application process).
+[PYI-12868:DEBUG] LOADER: application's top-level directory: /tmp/_MEIumg8TN
+[PYI-12868:DEBUG] LOADER: splash screen is unavailable.
+[PYI-12868:DEBUG] DYLIB: loading Python shared library: /tmp/_MEIumg8TN/libpython3.12.so.1.0
+[PYI-12868:DEBUG] DYLIB: loaded Python shared library.
+[PYI-12868:DEBUG] DYLIB: imported symbols from Python shared library.
+[PYI-12868:DEBUG] LOADER: pre-initializing embedded python interpreter...
+[PYI-12868:DEBUG] LOADER: using PEP-587 API...
+[PYI-12868:DEBUG] LOADER: creating PyConfig structure...
+[PYI-12868:DEBUG] LOADER: initializing interpreter configuration...
+[PYI-12868:DEBUG] LOADER: setting program name...
+[PYI-12868:DEBUG] LOADER: setting python home path...
+[PYI-12868:DEBUG] LOADER: setting module search paths...
+[PYI-12868:DEBUG] LOADER: setting sys.argv...
+[PYI-12868:DEBUG] LOADER: applying run-time options...
+[PYI-12868:DEBUG] LOADER: starting embedded python interpreter...
+[PYI-12868:DEBUG] LOADER: setting sys._MEIPASS
+[PYI-12868:DEBUG] LOADER: importing modules from PKG/CArchive
+[PYI-12868:DEBUG] LOADER: extracted struct
+[PYI-12868:DEBUG] LOADER: running unmarshalled code object for module struct...
+[PYI-12868:DEBUG] LOADER: extracted pyimod01_archive
+[PYI-12868:DEBUG] LOADER: running unmarshalled code object for module pyimod01_archive...
+[PYI-12868:DEBUG] LOADER: extracted pyimod02_importers
+[PYI-12868:DEBUG] LOADER: running unmarshalled code object for module pyimod02_importers...
+[PYI-12868:DEBUG] LOADER: extracted pyimod03_ctypes
+[PYI-12868:DEBUG] LOADER: running unmarshalled code object for module pyimod03_ctypes...
+[PYI-12868:DEBUG] LOADER: looking for PYZ archive TOC entry...
+[PYI-12868:DEBUG] LOADER: path to PYZ archive stored into sys._pyinstaller_pyz...
+[PYI-12868:DEBUG] LOADER: running pyiboot01_bootstrap.py
+[PYI-12868:DEBUG] LOADER: running pyi_rth_inspect.py
+[PYI-12868:DEBUG] LOADER: running pyi_rth_pkgutil.py
+[PYI-12868:DEBUG] LOADER: running pyi_rth_multiprocessing.py
+[PYI-12868:DEBUG] LOADER: running pyi_rth_pkgres.py
+[PYI-12868:DEBUG] LOADER: running pyi_rth_setuptools.py
+[PYI-12868:DEBUG] LOADER: running pyi_rth_mplconfig.py
+[PYI-12868:DEBUG] LOADER: running pyi_rth__tkinter.py
+[PYI-12868:DEBUG] LOADER: running main.py
+Traceback (most recent call last):
+  File "PIL/ImageTk.py", line 59, in _pyimagingtkcall
+_tkinter.TclError: invalid command name "PyImagingPhoto"
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "main.py", line 2438, in <module>
+  File "gui_interface.py", line 1482, in get_gui
+  File "gui_interface.py", line 740, in __init__
+  File "handlers/nova_graph_ui.py", line 57, in make_starry_bg
+  File "PIL/ImageTk.py", line 132, in __init__
+  File "PIL/ImageTk.py", line 188, in paste
+  File "PIL/ImageTk.py", line 63, in _pyimagingtkcall
+ModuleNotFoundError: No module named 'PIL._tkinter_finder'
+[PYI-12868:ERROR] Failed to execute script 'main' due to unhandled exception!
+[PYI-12868:DEBUG] LOADER: ERROR.
+[PYI-12868:DEBUG] LOADER: manually flushing stdout and stderr...
+[PYI-12868:DEBUG] LOADER: cleaning up Python interpreter...
+[PYI-12868:DEBUG] DYLIB: unloading Python shared library...
+[PYI-12868:DEBUG] DYLIB: unloaded Python shared library.
+[PYI-12868:DEBUG] LOADER: end of process reached!
+[PYI-12867:DEBUG] LOADER: restoring signal handlers
+[PYI-12867:DEBUG] LOADER: signal forwarding statistics: all=0, ok=0, err=0, noop=0
+[PYI-12867:DEBUG] LOADER: returning child exit status 1
+[PYI-12867:DEBUG] LOADER: child process exited (return code: 1)
+[PYI-12867:DEBUG] LOADER: performing cleanup...
+[PYI-12867:DEBUG] LOADER: removing temporary directory: /tmp/_MEIumg8TN
+[PYI-12867:DEBUG] LOADER: temporary directory /tmp/_MEIumg8TN was successfully removed.
+[PYI-12867:DEBUG] LOADER: end of process reached!

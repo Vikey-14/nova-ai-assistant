@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 from typing import Callable
-import importlib
+import importlib, re
 
 from command_map import COMMAND_MAP
 from utils import _speak_multilang, selected_language
+
+# NEW: fuzzy matcher (tolerates joined words & small typos)
+from fuzzy_utils import fuzzy_in
 
 # === Checkbox modes (render to Solution Popup) ===
 from handlers.basic_math_commands import handle_basic_math            # → popup "math"
@@ -20,6 +23,18 @@ from handlers.physics_solver import (
     handle_physics_question,   # main physics → Solution Popup (with inline “Plot it”)
     on_plot_it_button,         # new follow-up entrypoint: plots last physics equation
 )
+
+
+# ── Prevent dates like 2025-08-26 or 12/09/2025 from triggering Math ──
+_ISO_DATE_RE = re.compile(r'^\s*(?:19|20|21)\d{2}[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])\s*$')
+_DMY_DATE_RE = re.compile(r'^\s*(0?[1-9]|[12]\d|3[01])[-/](0?[1-9]|1[0-2])[-/]((?:19|20|21)\d{2})\s*$')
+_MDY_DATE_RE = re.compile(r'^\s*(0?[1-9]|1[0-2])[-/](0?[1-9]|[12]\d|3[01])[-/]((?:19|20|21)\d{2})\s*$')
+
+def _looks_like_standalone_date(cmd: str) -> bool:
+    s = (cmd or "").strip()
+    if any(pat.match(s) for pat in (_ISO_DATE_RE, _DMY_DATE_RE, _MDY_DATE_RE)):
+        return True
+    return False
 
 # 🧮 Symbolic Math (derivatives/integrals/limits/linear algebra)
 # If your project names this file differently, adjust the import below.
@@ -100,7 +115,7 @@ handle_weather = _resolve_handler(
 COMMAND_REGISTRY: list[tuple[Callable[[str], bool], Callable[[str], None]]] = []
 
 # ────────────────────────────────────────────────────────────────
-# 🧠 Memory
+# 🧠 Memory (keep strict natural phrases; fuzzy not required here)
 # ────────────────────────────────────────────────────────────────
 def is_remember_name(command: str) -> bool:
     cmd = (command or "").lower()
@@ -144,113 +159,93 @@ def is_clear_memory(command: str) -> bool:
 COMMAND_REGISTRY.append((is_clear_memory, handle_clear_memory))
 
 # ────────────────────────────────────────────────────────────────
-# 📝 Notes
+# 📝 Notes (additive fuzzy)
 # ────────────────────────────────────────────────────────────────
 def is_save_note(command: str) -> bool:
     cmd = (command or "").lower()
-    return any(kw in cmd for kw in COMMAND_MAP.get("save_note", [
-        "take a note", "note that", "लिखो", "noter", "notiz", "anotar"
-    ]))
+    kws = COMMAND_MAP.get("save_note", ["take a note", "note that", "लिखो", "noter", "notiz", "anotar"])
+    return any(kw in cmd for kw in kws) or fuzzy_in(cmd, kws)
 COMMAND_REGISTRY.append((is_save_note, create_note))
 
 def is_read_notes(command: str) -> bool:
     cmd = (command or "").lower()
-    return any(kw in cmd for kw in COMMAND_MAP.get("read_notes", [
-        "read notes", "show my notes", "मेरे नोट", "affiche mes notes", "zeige meine notizen", "mostrar mis notas"
-    ]))
+    kws = COMMAND_MAP.get("read_notes", ["read notes", "show my notes", "मेरे नोट", "affiche mes notes", "zeige meine notizen", "mostrar mis notas"])
+    return any(kw in cmd for kw in kws) or fuzzy_in(cmd, kws)
 COMMAND_REGISTRY.append((is_read_notes, read_notes))
 
 def is_search_notes(command: str) -> bool:
     cmd = (command or "").lower()
-    return any(kw in cmd for kw in COMMAND_MAP.get("search_notes", [
-        "find note", "search note", "look for note", "नोट खोजें", "chercher", "buscar", "suche"
-    ]))
+    kws = COMMAND_MAP.get("search_notes", ["find note", "search note", "look for note", "नोट खोजें", "chercher", "buscar", "suche"])
+    return any(kw in cmd for kw in kws) or fuzzy_in(cmd, kws)
 COMMAND_REGISTRY.append((is_search_notes, search_notes_by_keyword))
 
 def is_update_note(command: str) -> bool:
     cmd = (command or "").lower()
-    return any(kw in cmd for kw in COMMAND_MAP.get("update_note", [
-        "update note", "change note", "edit note", "नोट अपडेट", "modifie la note", "cambiar nota", "notiz bearbeiten"
-    ]))
+    kws = COMMAND_MAP.get("update_note", ["update note", "change note", "edit note", "नोट अपडेट", "modifie la note", "cambiar nota", "notiz bearbeiten"])
+    return any(kw in cmd for kw in kws) or fuzzy_in(cmd, kws)
 COMMAND_REGISTRY.append((is_update_note, update_note_handler))
 
 def is_delete_note(command: str) -> bool:
     cmd = (command or "").lower()
-    return any(kw in cmd for kw in COMMAND_MAP.get("delete_note", [
-        "delete note", "remove note", "delete my note", "नोट हटाओ", "supprime", "borra", "lösche"
-    ]))
+    kws = COMMAND_MAP.get("delete_note", ["delete note", "remove note", "delete my note", "नोट हटाओ", "supprime", "borra", "lösche"])
+    return any(kw in cmd for kw in kws) or fuzzy_in(cmd, kws)
 COMMAND_REGISTRY.append((is_delete_note, delete_note_handler))
 
 # ────────────────────────────────────────────────────────────────
-# ⏰ Alarm & Reminder
+# ⏰ Alarm & Reminder (additive fuzzy)
 # ────────────────────────────────────────────────────────────────
 def is_set_alarm(command: str) -> bool:
     cmd = (command or "").lower()
-    return any(kw in cmd for kw in COMMAND_MAP.get("set_alarm", [
-        "set alarm", "alarm for", "wake me", "अलार्म", "réveille", "despiértame", "wecker"
-    ]))
+    kws = COMMAND_MAP.get("set_alarm", ["set alarm", "alarm for", "wake me", "अलार्म", "réveille", "despiértame", "wecker"])
+    return any(kw in cmd for kw in kws) or fuzzy_in(cmd, kws)
 COMMAND_REGISTRY.append((is_set_alarm, handle_set_alarm))
 
 def is_set_reminder(command: str) -> bool:
     cmd = (command or "").lower()
-    return any(kw in cmd for kw in COMMAND_MAP.get("set_reminder", [
-        "remind me", "set reminder", "रिमाइंडर", "rappelle", "recuérdame", "erinnere"
-    ]))
+    kws = COMMAND_MAP.get("set_reminder", ["remind me", "set reminder", "रिमाइंडर", "rappelle", "recuérdame", "erinnere"])
+    return any(kw in cmd for kw in kws) or fuzzy_in(cmd, kws)
 COMMAND_REGISTRY.append((is_set_reminder, handle_set_reminder))
 
 # ────────────────────────────────────────────────────────────────
-# 🌐 Web
+# 🌐 Web (additive fuzzy)
 # ────────────────────────────────────────────────────────────────
 def is_open_youtube(command: str) -> bool:
     cmd = (command or "").lower()
-    return any(kw in cmd for kw in COMMAND_MAP.get("open_youtube", []))
+    kws = COMMAND_MAP.get("open_youtube", [])
+    return any(kw in cmd for kw in kws) or fuzzy_in(cmd, kws)
 COMMAND_REGISTRY.append((is_open_youtube, handle_open_youtube))
 
 def is_open_chatgpt(command: str) -> bool:
     cmd = (command or "").lower()
-    return any(kw in cmd for kw in COMMAND_MAP.get("open_chatgpt", []))
+    kws = COMMAND_MAP.get("open_chatgpt", [])
+    return any(kw in cmd for kw in kws) or fuzzy_in(cmd, kws)
 COMMAND_REGISTRY.append((is_open_chatgpt, handle_open_chatgpt))
 
 def is_search_google(command: str) -> bool:
     cmd = (command or "").lower()
-    return any(kw in cmd for kw in COMMAND_MAP.get("search_google", []))
+    kws = COMMAND_MAP.get("search_google", [])
+    return any(kw in cmd for kw in kws) or fuzzy_in(cmd, kws)
 COMMAND_REGISTRY.append((is_search_google, handle_search_google))
 
 def is_play_music(command: str) -> bool:
     cmd = (command or "").lower()
-    return any(kw in cmd for kw in COMMAND_MAP.get("play_music", []))
+    kws = COMMAND_MAP.get("play_music", [])
+    return any(kw in cmd for kw in kws) or fuzzy_in(cmd, kws)
 COMMAND_REGISTRY.append((is_play_music, handle_play_music))
 
 # ────────────────────────────────────────────────────────────────
-# 🌦️ Weather / 🗞️ News / 📚 Wikipedia
-# ────────────────────────────────────────────────────────────────
-def is_weather(command: str) -> bool:
-    cmd = (command or "").lower()
-    return any(p in cmd for p in COMMAND_MAP.get("get_weather", []))
-COMMAND_REGISTRY.append((is_weather, handle_weather))
-
-def is_news(command: str) -> bool:
-    cmd = (command or "").lower()
-    return any(p in cmd for p in COMMAND_MAP.get("get_news", []))
-COMMAND_REGISTRY.append((is_news, handle_news))
-
-def is_wikipedia_query(command: str) -> bool:
-    cmd = (command or "").lower()
-    return any(p in cmd for p in COMMAND_MAP.get("wiki_search", []))
-COMMAND_REGISTRY.append((is_wikipedia_query, handle_wikipedia))
-
-# ────────────────────────────────────────────────────────────────
-# 📅 Date / 🏖️ Holidays
-# (robust: works whether holidays live under date_queries or holiday_queries)
+# 📅 Date / 🏖️ Holidays (additive fuzzy for date; holidays keeps fallback too)
 # ────────────────────────────────────────────────────────────────
 def is_date_query(command: str) -> bool:
     cmd = (command or "").lower()
-    return any(p in cmd for p in COMMAND_MAP.get("date_queries", []))
+    kws = COMMAND_MAP.get("date_queries", [])
+    return any(p in cmd for p in kws) or fuzzy_in(cmd, kws)
 COMMAND_REGISTRY.append((is_date_query, handle_date_queries))
 
 def is_holiday_query(command: str) -> bool:
     cmd = (command or "").lower()
-    if any(p in cmd for p in COMMAND_MAP.get("holiday_queries", [])):
+    if any(p in cmd for p in COMMAND_MAP.get("holiday_queries", [])) or \
+       fuzzy_in(cmd, COMMAND_MAP.get("holiday_queries", [])):
         return True
     # fallback if not split out:
     holiday_terms = (
@@ -261,7 +256,29 @@ def is_holiday_query(command: str) -> bool:
 COMMAND_REGISTRY.append((is_holiday_query, handle_holiday_queries))
 
 # ────────────────────────────────────────────────────────────────
+# 🌦️ Weather / 🗞️ News / 📚 Wikipedia (additive fuzzy)
+# ────────────────────────────────────────────────────────────────
+def is_weather(command: str) -> bool:
+    cmd = (command or "").lower()
+    kws = COMMAND_MAP.get("get_weather", [])
+    return any(p in cmd for p in kws) or fuzzy_in(cmd, kws)
+COMMAND_REGISTRY.append((is_weather, handle_weather))
+
+def is_news(command: str) -> bool:
+    cmd = (command or "").lower()
+    kws = COMMAND_MAP.get("get_news", [])
+    return any(p in cmd for p in kws) or fuzzy_in(cmd, kws)
+COMMAND_REGISTRY.append((is_news, handle_news))
+
+def is_wikipedia_query(command: str) -> bool:
+    cmd = (command or "").lower()
+    kws = COMMAND_MAP.get("wiki_search", [])
+    return any(p in cmd for p in kws) or fuzzy_in(cmd, kws)
+COMMAND_REGISTRY.append((is_wikipedia_query, handle_wikipedia))
+
+# ────────────────────────────────────────────────────────────────
 # 🖥️ System (shutdown, brightness, exit, etc.)
+#   KEEP STRICT (no fuzzy) to avoid accidental destructive actions
 # ────────────────────────────────────────────────────────────────
 def is_system_command(command: str) -> bool:
     cmd = (command or "").lower()
@@ -281,10 +298,12 @@ COMMAND_REGISTRY.append((is_system_command, handle_system_commands))
 # ────────────────────────────────────────────────────────────────
 # 🧠 Symbolic Math (Derivatives, Integrals, Limits, Equations, Matrix Ops)
 # → Solution Popup (channel "math")
+#   (additive fuzzy on the base math_query keywords; feature words stay as-is)
 # ────────────────────────────────────────────────────────────────
 def is_symbolic_math(command: str) -> bool:
     cmd = (command or "").lower()
-    return any(kw in cmd for kw in COMMAND_MAP.get("math_query", [])) and (
+    kws = COMMAND_MAP.get("math_query", [])
+    return (any(kw in cmd for kw in kws) or fuzzy_in(cmd, kws)) and (
         "differentiate" in cmd or "derivative" in cmd or
         "integrate" in cmd or "integral" in cmd or
         "solve" in cmd or "find x" in cmd or
@@ -304,19 +323,27 @@ COMMAND_REGISTRY.append((is_symbolic_math, handle_symbolic_math))
 # → Solution Popup (channel "math")
 # ────────────────────────────────────────────────────────────────
 def is_math_query(command: str) -> bool:
-    cmd = (command or "").lower()
-    return any(kw in cmd for kw in COMMAND_MAP.get("math_query", []))
-COMMAND_REGISTRY.append((is_math_query, handle_basic_math))
+    cmd = (command or "").lower().strip()
+
+    # ⛔ guard: if it's a plain date string, don't treat as math
+    if _looks_like_standalone_date(cmd):
+        return False
+
+    kws = COMMAND_MAP.get("math_query", [])
+    return any(kw in cmd for kw in kws) or fuzzy_in(cmd, kws)
+
 
 # ────────────────────────────────────────────────────────────────
 # ⚛️ Physics Mode (units + equations)
 # → Solution Popup (channel "physics")
+#   (additive fuzzy on keyword list; your heuristic remains unchanged)
 # ────────────────────────────────────────────────────────────────
 def is_physics_query(command: str) -> bool:
     cmd = (command or "").lower()
 
-    # (1) Primary: explicit keywords from COMMAND_MAP
-    if any(kw in cmd for kw in COMMAND_MAP.get("physics_query", [])):
+    # (1) Primary: explicit keywords from COMMAND_MAP (augmented with fuzzy)
+    if any(kw in cmd for kw in COMMAND_MAP.get("physics_query", [])) or \
+       fuzzy_in(cmd, COMMAND_MAP.get("physics_query", [])):
         return True
 
     # (2) Fallback heuristic so “v = u + a*t” etc. still match
@@ -339,6 +366,7 @@ COMMAND_REGISTRY.append((is_physics_query, handle_physics_question))
 # ✅ Physics follow-up: “plot it / graph it / yes / ok …”
 #     → call the new on_plot_it_button() (uses last physics equation)
 #     (Placed BEFORE generic plot command so “plot it” isn’t misrouted)
+#     KEEP STRICT (no fuzzy) to avoid accidental confirms
 # ────────────────────────────────────────────────────────────────
 def is_graph_followup(command: str) -> bool:
     cmd = (command or "").strip().lower()
@@ -364,16 +392,19 @@ COMMAND_REGISTRY.append((is_graph_followup, handle_plot_followup))
 # ────────────────────────────────────────────────────────────────
 def is_plot_command(command: str) -> bool:
     cmd = (command or "").lower()
-    return any(kw in cmd for kw in COMMAND_MAP.get("plot_command", []))
+    kws = COMMAND_MAP.get("plot_command", [])
+    return any(kw in cmd for kw in kws) or fuzzy_in(cmd, kws)
 COMMAND_REGISTRY.append((is_plot_command, handle_plotting))
 
 # ────────────────────────────────────────────────────────────────
 # 🧪 Chemistry (calculations + quick facts)
 # → Solution Popup (channel "chemistry")
+#   (additive fuzzy on keyword list; lenient triggers remain)
 # ────────────────────────────────────────────────────────────────
 def is_chemistry_query(command: str) -> bool:
     cmd = (command or "").lower()
-    if any(kw in cmd for kw in COMMAND_MAP.get("chemistry_query", [])):
+    if any(kw in cmd for kw in COMMAND_MAP.get("chemistry_query", [])) or \
+       fuzzy_in(cmd, COMMAND_MAP.get("chemistry_query", [])):
         return True
     # Lenient patterns (e.g., “molar mass of H2SO4”, “pH of 0.10 M acid”)
     triggers = ("molar mass of", "molecular weight of", "ph of", "poh of", "pv=nrt", "stoichiometry")
@@ -382,5 +413,43 @@ COMMAND_REGISTRY.append((is_chemistry_query, handle_chemistry_query))
 
 def is_chemistry_fact(command: str) -> bool:
     cmd = (command or "").lower()
-    return any(kw in cmd for kw in COMMAND_MAP.get("chemistry_fact", []))
+    kws = COMMAND_MAP.get("chemistry_fact", [])
+    return any(kw in cmd for kw in kws) or fuzzy_in(cmd, kws)
 COMMAND_REGISTRY.append((is_chemistry_fact, handle_chemistry_query))
+
+# ────────────────────────────────────────────────────────────────
+# 📤 Export a SAFE handler map for fuzzy fallback in core_engine
+#   (Exclude destructive/system keys: shutdown/restart/sleep/lock/logout/exit)
+# ────────────────────────────────────────────────────────────────
+KEY_TO_HANDLER = {
+    # Web & info
+    "open_youtube": handle_open_youtube,
+    "open_chatgpt": handle_open_chatgpt,
+    "search_google": handle_search_google,
+    "get_weather": handle_weather,
+    "get_news": handle_news,
+    "wiki_search": handle_wikipedia,
+    "date_queries": handle_date_queries,
+
+    # Notes / reminders (safe)
+    "save_note": create_note,
+    "read_notes": read_notes,
+    "search_notes": search_notes_by_keyword,
+    "update_note": update_note_handler,
+    "delete_note": delete_note_handler,
+    "set_alarm": handle_set_alarm,
+    "set_reminder": handle_set_reminder,
+
+    # Domain solvers (safe)
+    "plot_command": handle_plotting,
+    "math_query": handle_basic_math,
+    "physics_query": handle_physics_question,
+    "chemistry_query": handle_chemistry_query,
+
+    # If you want: memory ops can be added too; generally safe:
+    "remember_name": handle_remember_name,
+    "recall_name": handle_recall_name,
+    "store_preference": handle_store_preference,
+    "update_memory": handle_update_memory,
+    "clear_memory": handle_clear_memory,
+}

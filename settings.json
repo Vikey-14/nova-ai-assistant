@@ -1,10 +1,12 @@
 {
-    "language": "en",
-    "wake_mode": "always_on",
-    "birthday_asked": true,
-    "birthday_final_prompt_shown": true,
-    "birthday_celebration_scheduled": true,
-    "birthday_show_next_boot": false,
-    "birthday_show_next_boot_date": "",
-    "birthday_celebrated_year": 2025
+  "language": "en",
+  "wake_mode": true,
+  "birthday_asked": true,
+  "birthday_final_prompt_shown": true,
+  "birthday_celebration_scheduled": true,
+  "birthday_show_next_boot": false,
+  "birthday_show_next_boot_date": "",
+  "birthday_celebrated_year": 2025,
+  "auto_restart_on_crash": true,
+  "auto_restart_backoff_max_sec": 60
 }

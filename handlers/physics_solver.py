@@ -20,7 +20,7 @@ from sympy.core.add import Add
 from sympy.core.power import Pow
 
 # App utilities (PyInstaller-safe paths, UTF-8 JSON, logs dir, etc.)
-from utils import handlers_path, load_json_utf8, LOG_DIR, graphs_dir
+from utils import handlers_path, load_json_utf8, LOG_DIR, graphs_dir, resource_path
 
 _last_equation_str = None  # remember last solved equation for plotting
 
@@ -121,14 +121,15 @@ def speak_need_values_ml():
 # Wake state helper (voice vs GUI)
 # -------------------------------------
 def _is_wake_mode_on() -> bool:
-    """Returns True if Wake Mode is ON, else False."""
     try:
-        from utils import is_wake_mode_on  # type: ignore
-        return bool(is_wake_mode_on())
+        from utils import get_wake_mode
+        return bool(get_wake_mode())
     except Exception:
+        # Defensive fallback: read merged settings and use the boolean key
         try:
-            from utils import settings  # type: ignore
-            return bool(settings.get("wake_mode_on", False))
+            from utils import load_settings
+            settings = load_settings()
+            return bool(settings.get("wake_mode", True))
         except Exception:
             return False
 
@@ -218,6 +219,10 @@ def _show_graph_preview_window(preview_path: str, suggested: str = "physics_grap
         return None  # headless
 
     win = tk.Toplevel()
+    try:
+        win.iconbitmap(resource_path("nova_icon_big.ico"))
+    except Exception:
+        pass
     win.title("Graph Preview")
     win.configure(bg="#0f0f0f")
     win.resizable(False, False)
@@ -374,6 +379,10 @@ def _open_solution_popup_with_plot_button(text_content: str, *, suggested_filena
         return
 
     win = tk.Toplevel()
+    try:
+        win.iconbitmap(resource_path("nova_icon_big.ico"))
+    except Exception:
+        pass
     win.title("Physics Solution")
     win.configure(bg="#0f0f0f")
     win.geometry("820x560")

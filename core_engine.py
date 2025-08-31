@@ -11,9 +11,6 @@ from command_map import COMMAND_MAP
 from gui_interface import show_mode_solution, append_mode_solution
 ASK_STEPS_RE = re.compile(r"(show steps|explain|why|how|details|step by step)", re.I)
 
-# 🚦 Wake mode tracker
-wake_mode_enabled = False
-
 # 🌍 Multilingual wake toggle phrases
 WAKE_ON_COMMANDS = {
     "en": ["enable wake mode", "start wake mode", "activate listening"],
@@ -38,45 +35,6 @@ def get_lang():
 
 def is_wake_toggle(command: str, phrases: dict):
     return any(kw in command for kw in phrases.get(get_lang(), []))
-
-# ✅ Start or stop wake listener with threading
-def toggle_wake_mode(enable: bool):
-    global wake_mode_enabled
-    from utils import _speak_multilang, log_interaction, set_wake_mode
-    from wake_word_listener import start_wake_listener_thread, stop_wake_listener_thread
-
-    current_lang = get_lang()
-
-    if enable and not wake_mode_enabled:
-        wake_mode_enabled = True
-        start_wake_listener_thread()
-        set_wake_mode(True)
-        print("✅ Wake mode ENABLED")
-        _speak_multilang(
-            en="Wake mode is now enabled.",
-            hi="वेेक मोड चालू कर दिया गया है।",
-            fr="Le mode d'écoute est activé.",
-            de="Der Wachmodus ist jetzt aktiviert.",
-            es="El modo de activación está habilitado."
-        )
-        log_interaction("wake_toggle", "enabled", current_lang)
-
-    elif not enable and wake_mode_enabled:
-        wake_mode_enabled = False
-        stop_wake_listener_thread()
-        set_wake_mode(False)
-        print("🛑 Wake mode DISABLED")
-        _speak_multilang(
-            en="Wake mode is now disabled.",
-            hi="वेेक मोड बंद कर दिया गया है।",
-            fr="Le mode d'écoute est désactivé.",
-            de="Der Wachmodus ist deaktiviert.",
-            es="El modo de activación está deshabilitado."
-        )
-        log_interaction("wake_toggle", "disabled", current_lang)
-
-    else:
-        print("⚠️ Wake mode already in that state.")
 
 # 🔹 Small helper for quick one-liners when checkbox = OFF
 def _quick_line(final_text: str) -> str:
@@ -162,6 +120,40 @@ def _should_route_to_plot(user_text: str) -> bool:
     return False
 
 
+# =========================
+# ✅ Physics confirm gating
+# =========================
+
+# Conservative explicit “graph it” intents across languages (avoid generic "show")
+EXPLICIT_GRAPH_INTENT_RE = re.compile(
+    r"(?i)\b("
+    r"graph( it)?|plot( it)?|draw( it)?|diagram"
+    r"|ग्राफ|ग्राफ़|प्लॉट|आरेख|बनाओ|बनाइए|दिखाओ|दिखाएँ"
+    r"|diagramm|zeichnen"
+    r"|graphe|graphique|tracer|dessine(r)?"
+    r"|gráfico|gráfica|graficar|trazar|dibujar"
+    r")\b"
+)
+
+def _physics_is_waiting() -> bool:
+    """
+    Checks if the physics handler is *currently* awaiting a yes/no/confirm for graphing.
+    Tries multiple symbols for compatibility; safely returns False if unknown.
+    """
+    try:
+        from handlers.physics_solver import is_graph_confirmation_open
+        return bool(is_graph_confirmation_open())
+    except Exception:
+        pass
+    try:
+        from handlers.physics_solver import PHYSICS_CTX  # common pattern
+        return bool(getattr(PHYSICS_CTX, "get", lambda *_: False)("awaiting_graph_confirmation"))
+    except Exception:
+        pass
+    # Fallback: unknown state → treat as not waiting
+    return False
+
+
 # 🧠 Process user commands
 def process_command(
     raw_command: str,
@@ -181,18 +173,17 @@ def process_command(
     # 👀 Does the user explicitly want detailed steps/explanations?
     wants_steps = bool(ASK_STEPS_RE.search(command))
 
-    # ⚡ ultra-fast physics follow-up: “graph it / yes / ok …”
-    # keep this FIRST so typed confirmations work with wake mode OFF
+    # ⚡ physics follow-up (GATED):
     try:
         from handlers.physics_solver import handle_graph_confirmation
-        if handle_graph_confirmation(command):
-            return
-    except Exception as _:
+        if _physics_is_waiting() or EXPLICIT_GRAPH_INTENT_RE.search(command):
+            if handle_graph_confirmation(command):
+                return
+    except Exception:
         pass
 
     # 🔢 Math Mode (UI override → centralized popup logic)
     if is_math_override:
-        # Use your two existing math handlers; they already push the popup
         try:
             from handlers.symbolic_math_commands import handle_symbolic_math
             from handlers.basic_math_commands import handle_basic_math
@@ -203,9 +194,9 @@ def process_command(
             ]
 
             if any(kw in command for kw in symbolic_keywords):
-                handle_symbolic_math(command)   # popup emitted inside the handler
+                handle_symbolic_math(command)   # popup inside handler
             else:
-                handle_basic_math(command)      # popup emitted inside the handler
+                handle_basic_math(command)      # popup inside handler
             return
 
         except Exception as e:
@@ -264,7 +255,7 @@ def process_command(
             )
             return
 
-    # 🧪 Chemistry Mode (UI override) — force full GUI steps, keep your prior state logic
+    # 🧪 Chemistry Mode (UI override)
     if is_chemistry_override:
         try:
             from handlers.chemistry_solver import handle_chemistry_query
@@ -280,14 +271,12 @@ def process_command(
             try:
                 final_chem_text = handle_chemistry_query(command)
                 if isinstance(final_chem_text, str) and final_chem_text.strip():
-                    # Chemistry checkbox ON always shows popup; "wants_steps" also qualifies
                     if is_chemistry_override or wants_steps:
                         show_mode_solution("chemistry", final_chem_text)
                     else:
                         _speak_multilang(en=_quick_line(final_chem_text))
                 return
             finally:
-                # Restore previous state to avoid side effects
                 try:
                     from utils import set_mode_state
                     if prev_state is not None and callable(set_mode_state):
@@ -322,16 +311,41 @@ def process_command(
                     )
             return
 
-    # 🔘 Wake Mode Commands
+    # 🔘 Wake Mode Commands — set the flag only; the tray watcher controls the mic.
     if is_wake_toggle(command, WAKE_ON_COMMANDS):
-        toggle_wake_mode(True)
-        return
-    if is_wake_toggle(command, WAKE_OFF_COMMANDS):
-        toggle_wake_mode(False)
+        try:
+            from utils import set_wake_mode, log_interaction
+            set_wake_mode(True)
+            log_interaction("wake_toggle", "enabled", get_lang())
+        except Exception:
+            pass
+        _speak_multilang(
+            en="Wake mode is now enabled.",
+            hi="वेेक मोड चालू कर दिया गया है।",
+            fr="Le mode d'écoute est activé.",
+            de="Der Wachmodus ist jetzt aktiviert.",
+            es="El modo de activación está habilitado."
+        )
         return
 
-    # 🔎 Auto-route to Plot when keywords present (any language),
-    #     or when Plot Mode is ON and the input looks like an equation/arrays.
+    if is_wake_toggle(command, WAKE_OFF_COMMANDS):
+        try:
+            from utils import set_wake_mode, log_interaction
+            set_wake_mode(False)
+            log_interaction("wake_toggle", "disabled", get_lang())
+        except Exception:
+            pass
+        _speak_multilang(
+            en="Wake mode is now disabled.",
+            hi="वेेक मोड बंद कर दिया गया है।",
+            fr="Le mode d'écoute est désactivé.",
+            de="Der Wachmodus ist deaktiviert.",
+            es="El modo de activación está deshabilitado."
+        )
+        return
+
+
+    # 🔎 Auto-route to Plot when keywords present or looks-plottable with Plot Mode ON
     try:
         if _should_route_to_plot(command):
             from handlers.plot_commands import handle_plotting
@@ -359,6 +373,37 @@ def process_command(
             )
             return
 
+    # 🔍 Fuzzy final-chance router (before unrecognized fallback)
+    try:
+        from fuzzy_utils import best_command_key
+        try:
+            from command_registry import KEY_TO_HANDLER  # optional export
+        except Exception:
+            KEY_TO_HANDLER = {}
+
+        key, phrase, score = best_command_key(command, COMMAND_MAP)
+
+        # strong hit → execute directly
+        if key in KEY_TO_HANDLER and score >= 0.86:
+            print(f"✨ Fuzzy direct match: {key} via '{phrase}' (score={score:.2f})")
+            log_interaction("fuzzy_match", f"{key}:{phrase}:{score:.2f}", current_lang)
+            return KEY_TO_HANDLER[key](command)
+
+        # near hit → ask for confirmation (prevents wrong actions)
+        if key and score >= 0.70:
+            print(f"❓ Fuzzy 'did you mean': {key} via '{phrase}' (score={score:.2f})")
+            log_interaction("fuzzy_confirm", f"{key}:{phrase}:{score:.2f}", current_lang)
+            _speak_multilang(
+                en=f"Did you mean “{phrase}”?",
+                hi=f"क्या आपका मतलब “{phrase}” था?",
+                fr=f"Vouliez-vous dire « {phrase} » ?",
+                es=f"¿Quisiste decir « {phrase} »?",
+                de=f"Meintest du „{phrase}“?"
+            )
+            return
+    except Exception as e:
+        print(f"⚠️ Fuzzy fallback error: {e}")
+
     # 🤷 Fallback
     _speak_multilang(
         en="Sorry, I don't recognize that command yet.",
@@ -368,6 +413,7 @@ def process_command(
         de="Entschuldigung, ich erkenne diesen Befehl noch nicht."
     )
     log_interaction("fallback_unrecognized", command, current_lang)
+
 
 # 🚀 Optional CLI loop
 def run_nova():

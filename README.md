@@ -57,6 +57,27 @@ She listens to your commands, speaks in 5 languages, opens apps, takes notes, se
 
 ---
 
+## 🐧 Linux (Ubuntu/Mint/Pop!_OS) — .deb Install
+
+**Download:** Grab the latest `.deb` from the **Releases** tab  
+(e.g. `nova_ai_assistant_1.0.2-1_amd64.deb`).
+
+**Install:**
+    sudo apt install ./nova_ai_assistant_1.0.2-1_amd64.deb
+
+**Run now:**
+    NOVA &
+    NovaTray &   # the tray also auto-starts on next login
+
+**Uninstall:**
+    sudo apt remove nova-ai-assistant
+
+**Notes**
+- If the tray icon doesn’t appear on some desktops, install AppIndicator runtime: `sudo apt install libayatana-appindicator3-1`
+- A launcher named **“Nova (AI Assistant)”** is added to your app menu; the tray helper **Nova Tray** auto-starts after login.
+
+---
+
 ## 👨‍💻 Author
 
 **Vikey Sharma**  
