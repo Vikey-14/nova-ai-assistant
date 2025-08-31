@@ -61,6 +61,22 @@ jobs:
                    --scripts mac/pkg/scripts \
                    NOVA_${APPVER}_mac.pkg
 
+      - name: Install & verify PKG on runner (headless smoke test)
+        shell: bash
+        run: |
+          APPVER=${GITHUB_REF_NAME#v}
+          sudo installer -pkg "NOVA_${APPVER}_mac.pkg" -target /
+          # Verify apps landed
+          test -d "/Applications/NOVA.app"
+          test -d "/Applications/Nova Tray.app"
+          # Verify executables exist
+          test -x "/Applications/NOVA.app/Contents/MacOS/NOVA"
+          test -x "/Applications/Nova Tray.app/Contents/MacOS/NovaTray"
+          # Verify LaunchAgent dropped and points to the tray binary
+          test -f "/Library/LaunchAgents/com.novaai.tray.plist"
+          /usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' /Library/LaunchAgents/com.novaai.tray.plist | grep -F "/Applications/Nova Tray.app/Contents/MacOS/NovaTray"
+          echo "PKG install + layout verified."
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
