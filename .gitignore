@@ -103,7 +103,7 @@ tiny.zip
 !poem_bank.json
 
 # Keep mac & linux specs
-!NOVA_mac.spec
+!NOVA_Mac.spec
 !NOVA_Linux.spec
 
 # Ignore platform dist folders

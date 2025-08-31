@@ -35,7 +35,7 @@ jobs:
           iconutil -c icns icons/nova.iconset -o icons/nova.icns
 
       - name: Build apps with PyInstaller
-        run: pyinstaller NOVA_mac.spec
+        run: pyinstaller NOVA_Mac.spec
 
       - name: Make DMG
         run: |
