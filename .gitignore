@@ -105,3 +105,7 @@ tiny.zip
 # Keep mac & linux specs
 !NOVA_mac.spec
 !NOVA_Linux.spec
+
+# Ignore platform dist folders
+/dist_linux/
+/dist_mac/
