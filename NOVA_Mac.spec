@@ -69,4 +69,4 @@ app_tray = BUNDLE(exe2, name="NovaTray.app", icon=ICON_ICNS,
 coll = COLLECT(app_main, app_tray,
                a1.binaries, a1.zipfiles, a1.datas,
                a2.binaries, a2.zipfiles, a2.datas,
-               name="NOVA_mac")
+               name="NOVA_Mac")
