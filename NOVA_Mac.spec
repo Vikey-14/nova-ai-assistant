@@ -43,7 +43,7 @@ a1 = Analysis(["main.py"], pathex=[str(BASE)], datas=datas,
 pyz1 = PYZ(a1.pure, a1.zipped_data)
 exe1 = EXE(pyz1, a1.scripts, a1.binaries, a1.zipfiles, a1.datas, [],
            name="Nova", console=False, icon=ICON_ICNS)
-app_main = BUNDLE(exe1, name="Nova.app", icon=ICON_ICNS,
+app_main = BUNDLE(exe1, name="NOVA.app", icon=ICON_ICNS,
                   bundle_identifier="com.novaai.Nova",
                   info_plist={
                       "NSMicrophoneUsageDescription":
@@ -58,7 +58,7 @@ a2 = Analysis([tray_entry], pathex=[str(BASE)], datas=datas,
 pyz2 = PYZ(a2.pure, a2.zipped_data)
 exe2 = EXE(pyz2, a2.scripts, a2.binaries, a2.zipfiles, a2.datas, [],
            name="NovaTray", console=False, icon=ICON_ICNS)
-app_tray = BUNDLE(exe2, name="NovaTray.app", icon=ICON_ICNS,
+app_tray = BUNDLE(exe2, name="Nova Tray.app", icon=ICON_ICNS,
                   bundle_identifier="com.novaai.NovaTray",
                   info_plist={
                       "LSUIElement": True,

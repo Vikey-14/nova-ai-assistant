@@ -88,3 +88,43 @@ jobs:
             dist/*.app
             NOVA_*_mac.dmg
             NOVA_*_mac.pkg
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - name: Download mac artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: NOVA-mac-${{ github.ref_name }}
+          path: release_assets
+
+      - name: List downloaded files (debug)
+        run: |
+          echo "== Tree of release_assets =="
+          ls -laR release_assets || true
+
+      - name: Zip .app bundles for upload
+        run: |
+          cd release_assets
+          # If .app dirs are at root
+          if [ -d "NOVA.app" ]; then zip -r "NOVA_${GITHUB_REF_NAME#v}_mac.app.zip" "NOVA.app"; fi
+          if [ -d "Nova Tray.app" ]; then zip -r "Nova_Tray_${GITHUB_REF_NAME#v}_mac.app.zip" "Nova Tray.app"; fi
+          # If they are under dist/
+          if [ -d "dist/NOVA.app" ]; then (cd dist && zip -r "../NOVA_${GITHUB_REF_NAME#v}_mac.app.zip" "NOVA.app"); fi
+          if [ -d "dist/Nova Tray.app" ]; then (cd dist && zip -r "../Nova_Tray_${GITHUB_REF_NAME#v}_mac.app.zip" "Nova Tray.app"); fi
+
+      - name: Create/Update GitHub Release (attach mac files)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: NOVA ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: |
+            release_assets/NOVA_*_mac.dmg
+            release_assets/NOVA_*_mac.pkg
+            release_assets/*_mac.app.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
