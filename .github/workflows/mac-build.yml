@@ -1,0 +1,55 @@
+name: macOS build (.app + DMG)
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+jobs:
+  build:
+    runs-on: macos-13
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Homebrew deps
+        run: |
+          brew update
+          brew install portaudio ffmpeg
+
+      - name: Python deps
+        run: |
+          python -m pip install --upgrade pip wheel
+          pip install -r requirements.macos.txt pyinstaller
+
+      - name: Make .icns from assets/nova_icon_256.png
+        run: |
+          mkdir -p icons/nova.iconset
+          sips -z 16 16  assets/nova_icon_256.png --out icons/nova.iconset/icon_16x16.png
+          sips -z 32 32  assets/nova_icon_256.png --out icons/nova.iconset/icon_16x16@2x.png
+          sips -z 32 32  assets/nova_icon_256.png --out icons/nova.iconset/icon_32x32.png
+          sips -z 64 64  assets/nova_icon_256.png --out icons/nova.iconset/icon_32x32@2x.png
+          sips -z 128 128 assets/nova_icon_256.png --out icons/nova.iconset/icon_128x128.png
+          sips -z 256 256 assets/nova_icon_256.png --out icons/nova.iconset/icon_128x128@2x.png
+          cp assets/nova_icon_256.png icons/nova.iconset/icon_512x512.png
+          cp assets/nova_icon_256.png icons/nova.iconset/icon_512x512@2x.png
+          iconutil -c icns icons/nova.iconset -o icons/nova.icns
+
+      - name: Build apps with PyInstaller
+        run: pyinstaller NOVA_mac.spec
+
+      - name: Make DMG
+        run: |
+          APPVER=${GITHUB_REF_NAME#v}
+          mkdir -p dist_mac/Nova-${APPVER}
+          cp -R dist/NOVA_mac/Nova.app dist_mac/Nova-${APPVER}/
+          cp -R dist/NOVA_mac/NovaTray.app dist_mac/Nova-${APPVER}/
+          cp -R mac dist_mac/Nova-${APPVER}/
+          hdiutil create -volname "Nova ${APPVER}" -srcfolder dist_mac/Nova-${APPVER} -ov -format UDZO Nova_${APPVER}_mac.dmg
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nova-mac-${{ github.ref_name }}
+          path: |
+            dist/NOVA_mac/*.app
+            Nova_*_mac.dmg
