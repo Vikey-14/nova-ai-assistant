@@ -1,0 +1,13 @@
+#!/bin/bash
+set -e
+PLIST_SRC="$(dirname "$0")/com.novaai.tray.plist"
+PLIST_DST="/Library/LaunchAgents/com.novaai.tray.plist"
+
+/bin/mkdir -p "/Library/LaunchAgents"
+/bin/cp -f "$PLIST_SRC" "$PLIST_DST"
+/usr/sbin/chown root:wheel "$PLIST_DST"
+/bin/chmod 644 "$PLIST_DST"
+
+/bin/launchctl unload "$PLIST_DST" >/dev/null 2>&1 || true
+/bin/launchctl load "$PLIST_DST" || true
+exit 0

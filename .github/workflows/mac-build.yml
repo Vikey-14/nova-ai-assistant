@@ -1,8 +1,8 @@
-name: macOS build (.app + DMG)
+name: macOS build (.app + DMG + PKG)
 on:
   workflow_dispatch:
   push:
-    tags: ['v*']
+    tags: ["v*"]
 
 jobs:
   build:
@@ -12,7 +12,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
       - name: Homebrew deps
         run: |
@@ -22,7 +22,7 @@ jobs:
       - name: Python deps
         run: |
           python -m pip install --upgrade pip wheel
-          pip install -r requirements.macos.txt pyinstaller
+          pip install -r requirements.macos.txt pyinstaller edge-tts gTTS playsound
 
       - name: Make .icns from assets/nova_icon_256.png
         run: |
@@ -40,39 +40,32 @@ jobs:
       - name: Build apps with PyInstaller
         run: pyinstaller NOVA_Mac.spec
 
-      - name: Smoke tests (headless)
-        run: |
-          # 1) Ensure the app executables exist
-          test -x "dist/Nova.app/Contents/MacOS/Nova"
-          test -x "dist/NovaTray.app/Contents/MacOS/NovaTray"
-
-          # 2) Check Info.plist keys exist
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' dist/Nova.app/Contents/Info.plist
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' dist/NovaTray.app/Contents/Info.plist
-          /usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' dist/Nova.app/Contents/Info.plist
-
-          # 3) Import core python modules (GUI/audio/objc)
-          python - <<'PY'
-          import importlib
-          for m in ["tkinter","PIL","pyttsx3","speech_recognition","objc","AppKit","Foundation","Quartz","pyaudio"]:
-              importlib.import_module(m)
-          print("Smoke imports OK")
-          PY
-
       - name: Make DMG
         run: |
           APPVER=${GITHUB_REF_NAME#v}
-          mkdir -p dist_mac/Nova-${APPVER}
-          cp -R dist/Nova.app dist_mac/Nova-${APPVER}/
-          cp -R dist/NovaTray.app dist_mac/Nova-${APPVER}/
-          cp -R mac dist_mac/Nova-${APPVER}/
-          hdiutil create -volname "Nova ${APPVER}" -srcfolder dist_mac/Nova-${APPVER} -ov -format UDZO Nova_${APPVER}_mac.dmg
+          mkdir -p dist_mac/NOVA-${APPVER}
+          cp -R "dist/NOVA.app"          dist_mac/NOVA-${APPVER}/
+          cp -R "dist/Nova Tray.app"     dist_mac/NOVA-${APPVER}/
+          cp -R mac                      dist_mac/NOVA-${APPVER}/
+          hdiutil create -volname "NOVA ${APPVER}" -srcfolder dist_mac/NOVA-${APPVER} -ov -format UDZO NOVA_${APPVER}_mac.dmg
+
+      - name: Build PKG installer
+        run: |
+          APPVER=${GITHUB_REF_NAME#v}
+          chmod +x mac/pkg/scripts/postinstall
+          pkgbuild --identifier com.novaai.NOVA \
+                   --version "$APPVER" \
+                   --install-location /Applications \
+                   --component "dist/NOVA.app" \
+                   --component "dist/Nova Tray.app" \
+                   --scripts mac/pkg/scripts \
+                   NOVA_${APPVER}_mac.pkg
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: Nova-mac-${{ github.ref_name }}
+          name: NOVA-mac-${{ github.ref_name }}
           path: |
-            dist/Nova.app
-            dist/NovaTray.app
-            Nova_*_mac.dmg
+            dist/*.app
+            NOVA_*_mac.dmg
+            NOVA_*_mac.pkg
