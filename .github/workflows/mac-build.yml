@@ -3,13 +3,16 @@ on:
   workflow_dispatch:
   push:
     tags: ['v*']
+
 jobs:
   build:
     runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
+        with:
+          python-version: '3.11'
 
       - name: Homebrew deps
         run: |
@@ -37,6 +40,25 @@ jobs:
       - name: Build apps with PyInstaller
         run: pyinstaller NOVA_Mac.spec
 
+      - name: Smoke tests (headless)
+        run: |
+          # 1) Ensure the app executables exist
+          test -x "dist/Nova.app/Contents/MacOS/Nova"
+          test -x "dist/NovaTray.app/Contents/MacOS/NovaTray"
+
+          # 2) Check Info.plist keys exist
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' dist/Nova.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' dist/NovaTray.app/Contents/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :NSMicrophoneUsageDescription' dist/Nova.app/Contents/Info.plist
+
+          # 3) Import core python modules (GUI/audio/objc)
+          python - <<'PY'
+          import importlib
+          for m in ["tkinter","PIL","pyttsx3","speech_recognition","objc","AppKit","Foundation","Quartz","pyaudio"]:
+              importlib.import_module(m)
+          print("Smoke imports OK")
+          PY
+
       - name: Make DMG
         run: |
           APPVER=${GITHUB_REF_NAME#v}
@@ -51,5 +73,6 @@ jobs:
         with:
           name: Nova-mac-${{ github.ref_name }}
           path: |
-            dist/*.app
+            dist/Nova.app
+            dist/NovaTray.app
             Nova_*_mac.dmg
