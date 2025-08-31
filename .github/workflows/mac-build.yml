@@ -16,7 +16,6 @@ jobs:
 
       - name: Homebrew deps
         run: |
-          brew update
           brew install portaudio ffmpeg
 
       - name: Python deps
@@ -76,6 +75,10 @@ jobs:
           test -f "/Library/LaunchAgents/com.novaai.tray.plist"
           /usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' /Library/LaunchAgents/com.novaai.tray.plist | grep -F "/Applications/Nova Tray.app/Contents/MacOS/NovaTray"
           echo "PKG install + layout verified."
+
+      - name: (Optional) Soft check Desktop alias
+        run: |
+          ls "/Users/runner/Desktop/NOVA.app" || echo "Desktop alias may not exist on CI (expected)."
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

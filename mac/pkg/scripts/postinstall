@@ -1,13 +1,48 @@
 #!/bin/bash
-set -e
+set -euo pipefail
+
 PLIST_SRC="$(dirname "$0")/com.novaai.tray.plist"
 PLIST_DST="/Library/LaunchAgents/com.novaai.tray.plist"
 
-/bin/mkdir -p "/Library/LaunchAgents"
+# 1) Install LaunchAgent (autostart on future logins)
+mkdir -p "/Library/LaunchAgents"
 /bin/cp -f "$PLIST_SRC" "$PLIST_DST"
 /usr/sbin/chown root:wheel "$PLIST_DST"
 /bin/chmod 644 "$PLIST_DST"
 
-/bin/launchctl unload "$PLIST_DST" >/dev/null 2>&1 || true
-/bin/launchctl load "$PLIST_DST" || true
+# 2) Determine console user (who ran the installer)
+CONSOLE_USER="$(/usr/sbin/scutil <<< 'show State:/Users/ConsoleUser' | awk '/Name :/ {print $3}')"
+if [ -z "${CONSOLE_USER:-}" ] || [ "$CONSOLE_USER" = "loginwindow" ]; then
+  CONSOLE_USER="$(stat -f%Su /dev/console 2>/dev/null || true)"
+fi
+
+# Helper: add Desktop alias to NOVA.app
+link_for_user() {
+  local user="$1"
+  local desk="/Users/$user/Desktop"
+  [ -d "$desk" ] || return 0
+  ln -sf "/Applications/NOVA.app" "$desk/NOVA.app" || true
+  chown -h "$user":staff "$desk/NOVA.app" 2>/dev/null || true
+}
+
+# 3) Desktop alias for console user (and others)
+if [ -n "${CONSOLE_USER:-}" ] && [ "$CONSOLE_USER" != "root" ]; then
+  link_for_user "$CONSOLE_USER"
+fi
+for d in /Users/*; do
+  u="$(basename "$d")"
+  [ "$u" = "Shared" ] && continue
+  [ "$u" = "$CONSOLE_USER" ] && continue
+  link_for_user "$u"
+done
+
+# 4) Start the tray NOW so the menu bar icon appears immediately
+if [ -n "${CONSOLE_USER:-}" ] && [ "$CONSOLE_USER" != "root" ]; then
+  UID="$(/usr/bin/id -u "$CONSOLE_USER")"
+  /bin/launchctl bootout   "gui/$UID/com.novaai.tray" 2>/dev/null || true
+  /bin/launchctl bootstrap "gui/$UID" "$PLIST_DST"    2>/dev/null || true
+  /bin/launchctl enable    "gui/$UID/com.novaai.tray" 2>/dev/null || true
+  /bin/launchctl kickstart -k "gui/$UID/com.novaai.tray" 2>/dev/null || true
+fi
+
 exit 0
