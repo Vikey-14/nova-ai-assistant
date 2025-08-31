@@ -1,7 +1,7 @@
 # tray_app.py
 # -*- coding: utf-8 -*-
 
-import os, sys, time, socket, threading, math
+import os, sys, time, socket, threading, math, signal
 from pathlib import Path
 import json
 from datetime import datetime, timedelta
@@ -35,6 +35,11 @@ try:
 except Exception:
     def start_wake_listener_thread(): pass
     def stop_wake_listener_thread(): pass
+
+# ---------- Platform flags ----------
+IS_MAC   = sys.platform == "darwin"
+IS_LINUX = sys.platform.startswith("linux")
+IS_WIN   = os.name == "nt"
 
 # Paths (robust in frozen + dev)
 IS_FROZEN = getattr(sys, "frozen", False)
@@ -539,7 +544,6 @@ def confirm_exit_tray() -> bool:
                 nonlocal angle
                 if _closing[0] or not w.winfo_exists(): return
                 angle += 2
-                import math
                 rad = math.radians(angle)
                 x = cx + radius * math.cos(rad); y = cy + radius * math.sin(rad)
                 canvas.coords(logo_id, x, y)
@@ -641,6 +645,9 @@ def confirm_exit_tray() -> bool:
 # -------------------------------
 # pystray icon + menu
 # -------------------------------
+def _tray_icon_size():  # MAC-ONLY: smaller icon for menubar
+    return 22 if IS_MAC else 32
+
 def _load_tray_image():
     for name in ("nova_icon_big.ico", "assets/nova_icon_big.ico",
                  "nova_icon.ico", "assets/nova_icon.ico",
@@ -649,13 +656,16 @@ def _load_tray_image():
         try:
             img = PILImage.open(path)
             try:
-                img = img.copy().resize((32, 32), PILImage.LANCZOS)
+                size = _tray_icon_size()  # MAC-ONLY tweak
+                img = img.copy().resize((size, size), PILImage.LANCZOS)
             except Exception:
                 pass
             return img
         except Exception:
             continue
-    return PILImage.new("RGBA", (32, 32), (90, 79, 207, 255))
+    # fallback
+    size = _tray_icon_size()
+    return PILImage.new("RGBA", (size, size), (90, 79, 207, 255))
 
 def _build_menu(icon):
     """Menu with Wake Mode as item #4 (dynamic ON/OFF label, label first)."""
@@ -817,6 +827,33 @@ def try_become_primary():
     return True
 
 # -------------------------------
+# MAC-ONLY: install signal handlers for clean unload/shutdown
+# -------------------------------
+def _install_mac_signal_handlers(icon):
+    if not IS_MAC:
+        return
+    def _term_handler(*_):
+        try:
+            icon.visible = False
+        except Exception:
+            pass
+        try:
+            icon.stop()
+        except Exception:
+            pass
+        try:
+            if _root:
+                _root.quit()
+        except Exception:
+            pass
+        os._exit(0)
+    try:
+        signal.signal(signal.SIGTERM, _term_handler)
+        signal.signal(signal.SIGINT, _term_handler)
+    except Exception:
+        pass
+
+# -------------------------------
 # Main
 # -------------------------------
 def main():
@@ -826,6 +863,10 @@ def main():
     _init_tk()
 
     icon = build_tray()
+
+    # MAC-ONLY: ensure LaunchAgent unload/shutdown is graceful
+    _install_mac_signal_handlers(icon)
+
     icon.run_detached()
 
     # Start/restore wake listener according to saved setting
