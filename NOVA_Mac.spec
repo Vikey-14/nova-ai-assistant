@@ -12,23 +12,28 @@ for root in ["assets", "data", "handlers", "logs"]:
     if p.is_dir():
         for f in p.rglob("*"):
             if f.is_file():
+                # copy file into its relative folder inside the app bundle
                 datas.append((str(f), str(f.parent.relative_to(BASE))))
 
+# single files at project root
 for fn in ["settings.json", "curiosity_data.json", "utils.py"]:
     if (BASE / fn).exists():
         datas.append((str(BASE / fn), "."))
 
+# hidden imports & extra package data
 hidden = []
 hidden += collect_submodules("handlers")
 hidden += [
     "tkinter", "PIL", "PIL.Image", "PIL.ImageTk", "PIL._tkinter_finder",
     "speech_recognition", "pyttsx3", "pystray", "requests", "bs4", "wikipedia",
     "dateparser", "dateparser_data", "langdetect", "platformdirs", "psutil",
-    "numpy", "sympy", "matplotlib", "objc", "AppKit", "Foundation", "Quartz"
+    "numpy", "sympy", "matplotlib", "objc", "AppKit", "Foundation", "Quartz",
 ]
 for m in ["matplotlib", "dateparser", "dateparser_data", "certifi"]:
-    try: datas += collect_data_files(m)
-    except Exception: pass
+    try:
+        datas += collect_data_files(m)
+    except Exception:
+        pass
 
 excludes = ["win32com", "comtypes", "pythoncom", "pywintypes", "wmi"]
 
@@ -43,7 +48,7 @@ app_main = BUNDLE(exe1, name="Nova.app", icon=ICON_ICNS,
                   info_plist={
                       "NSMicrophoneUsageDescription":
                       "Nova needs microphone access to listen to you.",
-                      "LSApplicationCategoryType": "public.app-category.utilities"
+                      "LSApplicationCategoryType": "public.app-category.utilities",
                   })
 
 # ---- tray app (prefer tray_app.py; fallback to tray_linux.py) ----
@@ -58,8 +63,8 @@ app_tray = BUNDLE(exe2, name="NovaTray.app", icon=ICON_ICNS,
                   info_plist={
                       "LSUIElement": True,
                       "NSMicrophoneUsageDescription":
-                      "Nova Tray listens for your wake word."
+                      "Nova Tray listens for your wake word.",
                   })
 
-# Keep both targets alive
+# Keep both targets alive (PyInstaller picks these up)
 apps = [app_main, app_tray]
