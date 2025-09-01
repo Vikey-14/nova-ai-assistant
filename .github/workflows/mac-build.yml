@@ -16,12 +16,14 @@ jobs:
 
       - name: Homebrew deps
         run: |
+          # no 'brew update' to save time/space
           brew install portaudio ffmpeg
 
       - name: Python deps
         run: |
           python -m pip install --upgrade pip wheel
           pip install -r requirements.macos.txt pyinstaller edge-tts gTTS playsound
+          pip cache purge || true
 
       - name: Make .icns from assets/nova_icon_256.png
         run: |
@@ -37,18 +39,48 @@ jobs:
           iconutil -c icns icons/nova.iconset -o icons/nova.icns
 
       - name: Build apps with PyInstaller
-        run: pyinstaller NOVA_Mac.spec
+        run: |
+          pyinstaller --clean NOVA_Mac.spec
+          rm -rf build
 
-      - name: Make DMG
+      - name: Strip binaries inside .app bundles (shrink)
+        run: |
+          set -e
+          if [ -d "dist/NOVA.app/Contents/MacOS" ]; then
+            find "dist/NOVA.app/Contents/MacOS" -type f -perm -111 -exec strip -x {} + || true
+          fi
+          if [ -d "dist/Nova Tray.app/Contents/MacOS" ]; then
+            find "dist/Nova Tray.app/Contents/MacOS" -type f -perm -111 -exec strip -x {} + || true
+          fi
+
+      - name: Free Homebrew caches (shrink)
+        run: |
+          brew cleanup -s || true
+          rm -rf "$(brew --cache)" || true
+
+      - name: Prepare workspace TMPDIR and check free space
+        run: |
+          mkdir -p tmp dist_mac
+          echo "TMPDIR=$PWD/tmp" >> $GITHUB_ENV
+          echo "==== Disk before DMG ===="
+          df -h /
+
+      - name: Make DMG (apps only to reduce size)
+        env:
+          TMPDIR: ${{ env.TMPDIR }}
         run: |
           APPVER=${GITHUB_REF_NAME#v}
-          mkdir -p dist_mac/NOVA-${APPVER}
-          cp -R "dist/NOVA.app"          dist_mac/NOVA-${APPVER}/
-          cp -R "dist/Nova Tray.app"     dist_mac/NOVA-${APPVER}/
-          cp -R mac                      dist_mac/NOVA-${APPVER}/
-          hdiutil create -volname "NOVA ${APPVER}" -srcfolder dist_mac/NOVA-${APPVER} -ov -format UDZO NOVA_${APPVER}_mac.dmg
+          mkdir -p "dist_mac/NOVA-${APPVER}"
+          cp -R "dist/NOVA.app"      "dist_mac/NOVA-${APPVER}/"
+          cp -R "dist/Nova Tray.app" "dist_mac/NOVA-${APPVER}/"
+          hdiutil create \
+            -volname "NOVA ${APPVER}" \
+            -srcfolder "dist_mac/NOVA-${APPVER}" \
+            -ov -format UDZO "NOVA_${APPVER}_mac.dmg"
 
-      - name: Build PKG installer
+      - name: Build PKG installer (primary for mac users)
+        env:
+          TMPDIR: ${{ env.TMPDIR }}
         run: |
           APPVER=${GITHUB_REF_NAME#v}
           chmod +x mac/pkg/scripts/postinstall
@@ -58,27 +90,20 @@ jobs:
                    --component "dist/NOVA.app" \
                    --component "dist/Nova Tray.app" \
                    --scripts mac/pkg/scripts \
-                   NOVA_${APPVER}_mac.pkg
+                   "NOVA_${APPVER}_mac.pkg"
 
       - name: Install & verify PKG on runner (headless smoke test)
         shell: bash
         run: |
           APPVER=${GITHUB_REF_NAME#v}
           sudo installer -pkg "NOVA_${APPVER}_mac.pkg" -target /
-          # Verify apps landed
           test -d "/Applications/NOVA.app"
           test -d "/Applications/Nova Tray.app"
-          # Verify executables exist
           test -x "/Applications/NOVA.app/Contents/MacOS/NOVA"
           test -x "/Applications/Nova Tray.app/Contents/MacOS/NovaTray"
-          # Verify LaunchAgent dropped and points to the tray binary
           test -f "/Library/LaunchAgents/com.novaai.tray.plist"
           /usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' /Library/LaunchAgents/com.novaai.tray.plist | grep -F "/Applications/Nova Tray.app/Contents/MacOS/NovaTray"
           echo "PKG install + layout verified."
-
-      - name: (Optional) Soft check Desktop alias
-        run: |
-          ls "/Users/runner/Desktop/NOVA.app" || echo "Desktop alias may not exist on CI (expected)."
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -100,20 +125,20 @@ jobs:
           name: NOVA-mac-${{ github.ref_name }}
           path: release_assets
 
-      - name: List downloaded files (debug)
-        run: |
-          echo "== Tree of release_assets =="
-          ls -laR release_assets || true
-
       - name: Zip .app bundles for upload
         run: |
           cd release_assets
-          # If .app dirs are at root
           if [ -d "NOVA.app" ]; then zip -r "NOVA_${GITHUB_REF_NAME#v}_mac.app.zip" "NOVA.app"; fi
           if [ -d "Nova Tray.app" ]; then zip -r "Nova_Tray_${GITHUB_REF_NAME#v}_mac.app.zip" "Nova Tray.app"; fi
-          # If they are under dist/
           if [ -d "dist/NOVA.app" ]; then (cd dist && zip -r "../NOVA_${GITHUB_REF_NAME#v}_mac.app.zip" "NOVA.app"); fi
           if [ -d "dist/Nova Tray.app" ]; then (cd dist && zip -r "../Nova_Tray_${GITHUB_REF_NAME#v}_mac.app.zip" "Nova Tray.app"); fi
+
+      - name: Make stable-named copies (for latest/ links)
+        run: |
+          cd release_assets
+          pkg=$(ls NOVA_*_mac.pkg | head -n1); cp "$pkg" NOVA_mac.pkg
+          dmg=$(ls NOVA_*_mac.dmg | head -n1); cp "$dmg" NOVA_mac.dmg
+          shasum -a 256 * > SHA256SUMS.txt || true
 
       - name: Create/Update GitHub Release (attach mac files)
         uses: softprops/action-gh-release@v2
@@ -125,6 +150,9 @@ jobs:
           files: |
             release_assets/NOVA_*_mac.dmg
             release_assets/NOVA_*_mac.pkg
+            release_assets/NOVA_mac.dmg
+            release_assets/NOVA_mac.pkg
             release_assets/*_mac.app.zip
+            release_assets/SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

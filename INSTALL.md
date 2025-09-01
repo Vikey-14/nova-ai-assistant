@@ -1,5 +1,14 @@
 # Install NOVA
 
+## Download (latest)
+- **Windows:** [NovaSetup.exe](https://github.com/Vikey-14/nova-ai-assistant/releases/latest/download/NovaSetup.exe)
+- **macOS:**  [NOVA_mac.pkg](https://github.com/Vikey-14/nova-ai-assistant/releases/latest/download/NOVA_mac.pkg) · [NOVA_mac.dmg](https://github.com/Vikey-14/nova-ai-assistant/releases/latest/download/NOVA_mac.dmg)
+- **Linux:**  [.deb (amd64)](https://github.com/Vikey-14/nova-ai-assistant/releases/latest/download/nova_ai_assistant_amd64.deb)
+
+All versions: see the [Releases](https://github.com/Vikey-14/nova-ai-assistant/releases) page.
+
+---
+
 Get the latest installers for **Windows**, **macOS**, and **Linux** from the repo’s **Releases** page.
 
 ---
