@@ -11,7 +11,7 @@ All versions: see the [Releases](https://github.com/Vikey-14/nova-ai-assistant/r
 
 ## Windows
 1) Download **NovaSetup.exe** from Releases.  
-2) Run it. It installs **NOVA** and **Nova Tray**, creates a **Desktop shortcut**, adds Start Menu entries, auto-starts the tray at login, and launches it immediately.
+2) Run it. It installs **NOVA** and **Nova Tray**, creates a **Desktop shortcut**, adds Start Menu entries, auto-starts the tray at login.
 
 ---
 

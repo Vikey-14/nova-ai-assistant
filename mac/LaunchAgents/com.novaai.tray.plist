@@ -5,7 +5,7 @@
   <key>Label</key><string>com.novaai.tray</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Applications/NovaTray.app/Contents/MacOS/NovaTray</string>
+    <string>/Applications/Nova Tray.app/Contents/MacOS/NovaTray</string>
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>

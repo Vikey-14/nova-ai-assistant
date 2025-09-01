@@ -1,48 +1,59 @@
 #!/bin/bash
 set -euo pipefail
 
-PLIST_SRC="$(dirname "$0")/com.novaai.tray.plist"
-PLIST_DST="/Library/LaunchAgents/com.novaai.tray.plist"
+# --- Resolve the active console user (for Desktop alias + starting tray) ---
+CURRENT_USER="$(/usr/sbin/scutil <<< 'show State:/Users/ConsoleUser' | awk '/Name :/ && $3 != "loginwindow" {print $3}' || true)"
+if [[ -z "${CURRENT_USER:-}" || "${CURRENT_USER}" == "root" ]]; then
+  CURRENT_USER="$(stat -f%Su /dev/console || true)"
+fi
 
-# 1) Install LaunchAgent (autostart on future logins)
-mkdir -p "/Library/LaunchAgents"
+APP="/Applications/NOVA.app"
+TRAY_APP="/Applications/Nova Tray.app/Contents/MacOS/NovaTray"
+
+# --- Install LaunchAgent to auto-start Nova Tray at login ---
+PLIST_SRC="$(cd "$(dirname "$0")" && pwd)/com.novaai.tray.plist"
+PLIST_DST="/Library/LaunchAgents/com.novaai.tray.plist"
+/bin/mkdir -p "/Library/LaunchAgents"
 /bin/cp -f "$PLIST_SRC" "$PLIST_DST"
 /usr/sbin/chown root:wheel "$PLIST_DST"
 /bin/chmod 644 "$PLIST_DST"
 
-# 2) Determine console user (who ran the installer)
-CONSOLE_USER="$(/usr/sbin/scutil <<< 'show State:/Users/ConsoleUser' | awk '/Name :/ {print $3}')"
-if [ -z "${CONSOLE_USER:-}" ] || [ "$CONSOLE_USER" = "loginwindow" ]; then
-  CONSOLE_USER="$(stat -f%Su /dev/console 2>/dev/null || true)"
+# --- Create a Desktop alias to NOVA.app for the console user (best-effort) ---
+if [[ -n "${CURRENT_USER:-}" && "${CURRENT_USER}" != "root" ]]; then
+  DESK="/Users/${CURRENT_USER}/Desktop"
+  /bin/mkdir -p "$DESK"
+
+  # Try a Finder alias first (looks nicest); fall back to a symlink.
+  if /usr/bin/osascript -e 'return 1' >/dev/null 2>&1; then
+    /usr/bin/osascript <<OSA || true
+tell application "Finder"
+  try
+    set d to POSIX file "$DESK" as alias
+    set targetApp to POSIX file "$APP" as alias
+    if not (exists file "NOVA.app" of d) then
+      make new alias file at d to targetApp with properties {name:"NOVA.app"}
+    end if
+  end try
+end tell
+OSA
+  fi
+
+  # Fallback: plain symlink if alias wasn’t created
+  if [[ ! -e "$DESK/NOVA.app" ]]; then
+    /bin/ln -sfn "$APP" "$DESK/NOVA.app" || true
+  fi
+  /usr/sbin/chown -h "$CURRENT_USER":staff "$DESK/NOVA.app" 2>/dev/null || true
 fi
 
-# Helper: add Desktop alias to NOVA.app
-link_for_user() {
-  local user="$1"
-  local desk="/Users/$user/Desktop"
-  [ -d "$desk" ] || return 0
-  ln -sf "/Applications/NOVA.app" "$desk/NOVA.app" || true
-  chown -h "$user":staff "$desk/NOVA.app" 2>/dev/null || true
-}
-
-# 3) Desktop alias for console user (and others)
-if [ -n "${CONSOLE_USER:-}" ] && [ "$CONSOLE_USER" != "root" ]; then
-  link_for_user "$CONSOLE_USER"
-fi
-for d in /Users/*; do
-  u="$(basename "$d")"
-  [ "$u" = "Shared" ] && continue
-  [ "$u" = "$CONSOLE_USER" ] && continue
-  link_for_user "$u"
-done
-
-# 4) Start the tray NOW so the menu bar icon appears immediately
-if [ -n "${CONSOLE_USER:-}" ] && [ "$CONSOLE_USER" != "root" ]; then
-  UID="$(/usr/bin/id -u "$CONSOLE_USER")"
-  /bin/launchctl bootout   "gui/$UID/com.novaai.tray" 2>/dev/null || true
-  /bin/launchctl bootstrap "gui/$UID" "$PLIST_DST"    2>/dev/null || true
-  /bin/launchctl enable    "gui/$UID/com.novaai.tray" 2>/dev/null || true
-  /bin/launchctl kickstart -k "gui/$UID/com.novaai.tray" 2>/dev/null || true
+# --- Start (or restart) the tray for the current GUI session now (best-effort) ---
+if [[ -n "${CURRENT_USER:-}" && -x "$TRAY_APP" ]]; then
+  UID="$(/usr/bin/id -u "$CURRENT_USER" 2>/dev/null || true)"
+  if [[ -n "$UID" ]]; then
+    /bin/launchctl bootout   "gui/${UID}/com.novaai.tray" >/dev/null 2>&1 || true
+    /bin/launchctl bootstrap "gui/${UID}" "$PLIST_DST"     >/dev/null 2>&1 || true
+    /bin/launchctl enable    "gui/${UID}/com.novaai.tray"  >/dev/null 2>&1 || true
+    /bin/launchctl kickstart -k "gui/${UID}/com.novaai.tray" >/dev/null 2>&1 || true
+  fi
 fi
 
 exit 0

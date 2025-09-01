@@ -37,3 +37,9 @@ mac/pkg/scripts/* text eol=lf
 
 mac/pkg/scripts/* text eol=lf
 .github/workflows/*.yml text eol=lf
+
+# keep shell / CI files LF
+*.sh text eol=lf
+mac/pkg/scripts/* text eol=lf
+*.yml text eol=lf
+*.spec text eol=lf
