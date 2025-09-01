@@ -94,8 +94,6 @@ jobs:
         shell: bash
         run: |
           set -e
-
-          # DEBUG: confirm the embedded postinstall is the CI-safe one
           pkgutil --expand-full "NOVA_${APPVER}_mac.pkg" expanded_pkg
           ls -la expanded_pkg/Scripts || true
           echo "----- postinstall (first 120 lines) -----"
@@ -133,6 +131,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Set APPVER for body
+        run: echo "APPVER=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
       - name: Download mac artifacts
         uses: actions/download-artifact@v4
         with:
@@ -154,13 +155,31 @@ jobs:
           dmg=$(ls NOVA_*_mac.dmg | head -n1); cp "$dmg" NOVA_mac.dmg
           shasum -a 256 * > SHA256SUMS.txt || true
 
-      - name: Create/Update GitHub Release (attach mac files)
+      - name: Create/Update GitHub Release (attach mac files + nice body)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           name: NOVA ${{ github.ref_name }}
           draft: false
           prerelease: false
+          body: |
+            ## Download (pick your OS)
+
+            🪟 **Windows**
+            - Installer: **NovaSetup.exe**
+            - Portable: **NOVA_${{ env.APPVER }}_windows_portable.zip**
+
+            🍎 **macOS**
+            - PKG (recommended): **NOVA_${{ env.APPVER }}_mac.pkg**
+            - DMG: **NOVA_${{ env.APPVER }}_mac.dmg**
+            - App zips: **NOVA_${{ env.APPVER }}_mac.app.zip**, **Nova_Tray_${{ env.APPVER }}_mac.app.zip**
+
+            🐧 **Linux (Debian/Ubuntu)**
+            - .deb: **nova_ai_assistant_${{ env.APPVER }}-1_amd64.deb**
+              (stable copy: **nova_ai_assistant_amd64.deb**)
+
+            🔐 **Checksums**
+            - **SHA256SUMS.txt**
           files: |
             release_assets/NOVA_*_mac.dmg
             release_assets/NOVA_*_mac.pkg
