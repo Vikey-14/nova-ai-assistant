@@ -1,4 +1,5 @@
 name: Windows build (portable zips + optional installer)
+
 on:
   workflow_dispatch:
   push:
@@ -12,7 +13,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"   # ← Windows on 3.12
+          python-version: "3.12"  # Windows on 3.12
 
       - name: Tools
         shell: powershell
@@ -32,6 +33,7 @@ jobs:
           pyinstaller NOVA.spec
           Get-ChildItem dist -Recurse | Select-Object FullName,Length
 
+      # Make APPVER available (e.g. v1.0.26 -> 1.0.26)
       - name: Derive APPVER from tag
         shell: bash
         run: echo "APPVER=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
@@ -41,14 +43,24 @@ jobs:
         env:
           APPVER: ${{ env.APPVER }}
         run: |
+          # Inno script reads %APPVER% via GetEnv("APPVER")
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" .\NovaInstaller.iss
           Get-ChildItem dist\installer -Recurse | Select-Object FullName,Length
 
+      # FIX: use Compress-Archive instead of 'zip'
       - name: Zip portable bundles (optional)
-        shell: bash
+        shell: powershell
+        env:
+          APPVER: ${{ env.APPVER }}
         run: |
-          cd dist
-          if [ -d "NOVA" ]; then zip -r "NOVA_${GITHUB_REF_NAME#v}_windows_portable.zip" "NOVA"; fi
+          if (Test-Path "dist\NOVA") {
+            $zip = "dist\NOVA_${env:APPVER}_windows_portable.zip"
+            if (Test-Path $zip) { Remove-Item $zip -Force }
+            Compress-Archive -Path "dist\NOVA" -DestinationPath $zip -CompressionLevel Optimal
+            Write-Host "Created $zip"
+          } else {
+            Write-Host "No dist\NOVA folder; skipping portable zip."
+          }
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
@@ -57,3 +69,43 @@ jobs:
           path: |
             dist/installer/NovaSetup.exe
             dist/*_windows_portable.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: NOVA-windows-${{ github.ref_name }}
+          path: release_assets
+
+      - name: Prepare assets (flatten + stable names + checksums)
+        shell: bash
+        run: |
+          set -e
+          cd release_assets
+          # bring installer to top-level with a stable name
+          f=$(find . -type f -name 'NovaSetup.exe' | head -n1 || true)
+          if [ -n "$f" ]; then cp "$f" NovaSetup.exe; fi
+          # bring portable zips to top-level
+          find . -type f -name '*_windows_portable.zip' -exec cp {} . \; || true
+          # checksums (best-effort)
+          shasum -a 256 * > SHA256SUMS.txt || true
+
+      - name: Create/Update GitHub Release (attach Windows files)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: NOVA ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: |
+            release_assets/NovaSetup.exe
+            release_assets/*_windows_portable.zip
+            release_assets/SHA256SUMS.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
