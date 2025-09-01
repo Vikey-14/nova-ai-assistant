@@ -172,4 +172,13 @@ chmod 0755 "$PKGROOT/DEBIAN/postrm"
 dpkg-deb --build --root-owner-group "$PKGROOT" "/tmp/${PKGFILE}"
 mkdir -p dist_linux
 mv "/tmp/${PKGFILE}" dist_linux/
+
+# Create/refresh a stable name that always points at the newest .deb.
+# Prefer a symlink; if not supported (e.g. certain mounts), fall back to a copy.
+(
+  cd dist_linux
+  ln -sfn "$PKGFILE" nova_ai_assistant_amd64.deb 2>/dev/null || cp -f "$PKGFILE" nova_ai_assistant_amd64.deb
+)
+
 echo "Built: dist_linux/${PKGFILE}"
+echo "Stable: dist_linux/nova_ai_assistant_amd64.deb -> ${PKGFILE}"

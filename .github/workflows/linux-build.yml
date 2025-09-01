@@ -30,7 +30,6 @@ jobs:
       - name: Python deps
         run: |
           python -m pip install --upgrade pip wheel
-          # If you use a single requirements.txt, change the filename here
           pip install -r requirements.linux.txt pyinstaller
 
       - name: Build with PyInstaller (Linux)
@@ -38,6 +37,10 @@ jobs:
           # Put PyInstaller outputs under dist_linux to match pack_deb.sh
           pyinstaller --distpath dist_linux NOVA_Linux.spec
           ls -lh dist_linux || true
+
+      # Clean up old .deb files so only the latest remains
+      - name: Clean old .deb files (keep workspace tidy)
+        run: rm -f dist_linux/nova_ai_assistant_*_amd64.deb || true
 
       - name: Build .deb
         env:
@@ -88,8 +91,8 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            release_assets/*.deb
-            release_assets/nova_ai_assistant_amd64.deb
+            release_assets/nova_ai_assistant_*_amd64.deb  # versioned file(s) only
+            release_assets/nova_ai_assistant_amd64.deb    # stable copy
             release_assets/SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
