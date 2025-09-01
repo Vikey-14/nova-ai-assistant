@@ -36,7 +36,7 @@ jobs:
         run: |
           # Put PyInstaller outputs under dist_linux to match pack_deb.sh
           pyinstaller --distpath dist_linux NOVA_Linux.spec
-          ls -lh dist_linux || true
+          ls -lah dist_linux || true
 
       # Clean up old .deb files so only the latest remains
       - name: Clean old .deb files (keep workspace tidy)
@@ -49,7 +49,7 @@ jobs:
           APPVER="${APPVER#v}"
           if [ -z "$APPVER" ]; then APPVER="1.0.0"; fi
           bash pack_deb.sh "${APPVER}-1"
-          ls -lh dist_linux/*.deb
+          ls -lah dist_linux | grep -E '\.deb$' || true
 
       - name: Install & verify (smoke test)
         run: |
@@ -63,6 +63,8 @@ jobs:
         with:
           name: NOVA-linux-${{ github.ref_name }}
           path: dist_linux/*.deb
+          if-no-files-found: error
+          compression-level: 0
 
   release:
     needs: build
@@ -77,11 +79,26 @@ jobs:
           name: NOVA-linux-${{ github.ref_name }}
           path: release_assets
 
+      # DEBUG: show what we downloaded and where (helps if anything ever goes wrong)
+      - name: List downloaded files
+        run: |
+          echo "::group::release_assets tree"
+          ls -laR release_assets || true
+          echo "::endgroup::"
+
       - name: Make stable-named copy (.deb) + checksums
         run: |
+          set -e
           cd release_assets
-          cp "$(ls nova_ai_assistant_*_amd64.deb | head -n1)" nova_ai_assistant_amd64.deb
+          # Find the versioned .deb even if it's nested in a subfolder
+          DEB="$(find . -type f -name 'nova_ai_assistant_*_amd64.deb' | head -n1)"
+          if [ -z "$DEB" ]; then
+            echo "ERROR: no .deb found under $(pwd)"
+            exit 1
+          fi
+          cp -f "$DEB" nova_ai_assistant_amd64.deb
           shasum -a 256 * > SHA256SUMS.txt || true
+          ls -la
 
       - name: Create/Update GitHub Release (attach .deb)
         uses: softprops/action-gh-release@v2
@@ -91,8 +108,7 @@ jobs:
           draft: false
           prerelease: false
           files: |
-            release_assets/nova_ai_assistant_*_amd64.deb  # versioned file(s) only
-            release_assets/nova_ai_assistant_amd64.deb    # stable copy
+            release_assets/**/*.deb   # versioned + stable copy, recursive
             release_assets/SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
