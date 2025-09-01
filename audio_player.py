@@ -6,9 +6,12 @@ def _run(cmd: List[str]) -> None:
     subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True).wait()
 
 def _linux_players() -> list[str]:
-    cands = ["/usr/bin/ffplay", "/bin/ffplay", "ffplay",
-             "/usr/bin/mpg123", "/bin/mpg123", "mpg123"]
-    out = []
+    # Prefer ffplay (handles wav/mp3), then mpg123 (mp3)
+    cands = [
+        "/usr/bin/ffplay", "/bin/ffplay", "ffplay",
+        "/usr/bin/mpg123", "/bin/mpg123", "mpg123",
+    ]
+    out: list[str] = []
     for c in cands:
         exe = shutil.which(c) or (c if os.path.exists(c) else None)
         if exe and exe not in out:
@@ -18,8 +21,10 @@ def _linux_players() -> list[str]:
 def play_audio_file(path: str, block: bool = True) -> None:
     if not path or not os.path.exists(path):
         return
-    linuxish = sys.platform.startswith("linux") or "WSL_DISTRO_NAME" in os.environ
+
+    linuxish = sys.platform.startswith("linux") or ("WSL_DISTRO_NAME" in os.environ)
     if linuxish:
+        # Try system players
         for exe in _linux_players():
             try:
                 if exe.endswith("ffplay"):
@@ -28,20 +33,25 @@ def play_audio_file(path: str, block: bool = True) -> None:
                     cmd = [exe, "-q", path]
                 else:
                     continue
-                if block: _run(cmd)
-                else: subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+                if block:
+                    _run(cmd)
+                else:
+                    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
                 return
             except Exception:
                 continue
-        return  # no crash if missing players
-    # Windows/mac: keep playsound behavior
+        # No crash if we couldn't play
+        return
+
+    # Windows/mac: use playsound (unchanged behavior)
     try:
-        from audio_player import play_audio_file
+        from playsound import playsound
         if block:
-            play_audio_file(path)
+            playsound(path)
         else:
-            subprocess.Popen([sys.executable, "-c",
-                              f"from audio_player import play_audio_file; play_audio_file(r'''{path}''')"],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True)
+            subprocess.Popen(
+                [sys.executable, "-c", f"from playsound import playsound; playsound(r'''{path}''')"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True
+            )
     except Exception:
-        pass
+        pass   

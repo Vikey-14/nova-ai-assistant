@@ -1,0 +1,85 @@
+name: Linux build (.deb)
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: System deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg libasound2 libpulse0 desktop-file-utils
+
+      - name: Python deps
+        run: |
+          python -m pip install --upgrade pip wheel
+          pip install -r requirements.linux.txt pyinstaller edge-tts gTTS playsound
+          pip cache purge || true
+
+      - name: Build with PyInstaller (Linux)
+        run: |
+          # Put PyInstaller outputs under dist_linux to match pack_deb.sh
+          pyinstaller --distpath dist_linux NOVA_Linux.spec
+          ls -lh dist_linux || true
+
+      - name: Build .deb
+        run: |
+          APPVER="${GITHUB_REF_NAME#v}"
+          if [ -z "$APPVER" ]; then APPVER="1.0.0"; fi
+          bash pack_deb.sh "${APPVER}-1"
+          ls -lh dist_linux/*.deb
+
+      - name: Install & verify (smoke test)
+        run: |
+          sudo apt-get install -y ./dist_linux/*.deb
+          test -f /usr/share/applications/nova.desktop
+          test -f /etc/xdg/autostart/nova-tray.desktop
+          echo "Linux .deb installed & basic files present."
+
+      - name: Upload artifact (.deb)
+        uses: actions/upload-artifact@v4
+        with:
+          name: NOVA-linux-${{ github.ref_name }}
+          path: dist_linux/*.deb
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - name: Download Linux artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: NOVA-linux-${{ github.ref_name }}
+          path: release_assets
+
+      - name: Make stable-named copy (.deb) + checksums
+        run: |
+          cd release_assets
+          cp "$(ls nova_ai_assistant_*_amd64.deb | head -n1)" nova_ai_assistant_amd64.deb
+          shasum -a 256 * > SHA256SUMS.txt || true
+
+      - name: Create/Update GitHub Release (attach .deb)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: NOVA ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: |
+            release_assets/*.deb
+            release_assets/nova_ai_assistant_amd64.deb
+            release_assets/SHA256SUMS.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
