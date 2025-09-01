@@ -16,7 +16,6 @@ jobs:
 
       - name: Homebrew deps
         run: |
-          # no 'brew update' to save time/space
           brew install portaudio ffmpeg
 
       - name: Python deps
@@ -62,8 +61,7 @@ jobs:
         run: |
           mkdir -p tmp dist_mac
           echo "TMPDIR=$PWD/tmp" >> $GITHUB_ENV
-          echo "==== Disk before DMG ===="
-          df -h /
+          echo "==== Disk before DMG ===="; df -h /
 
       - name: Make DMG (apps only to reduce size)
         env:
@@ -73,10 +71,7 @@ jobs:
           mkdir -p "dist_mac/NOVA-${APPVER}"
           cp -R "dist/NOVA.app"      "dist_mac/NOVA-${APPVER}/"
           cp -R "dist/Nova Tray.app" "dist_mac/NOVA-${APPVER}/"
-          hdiutil create \
-            -volname "NOVA ${APPVER}" \
-            -srcfolder "dist_mac/NOVA-${APPVER}" \
-            -ov -format UDZO "NOVA_${APPVER}_mac.dmg"
+          hdiutil create -volname "NOVA ${APPVER}" -srcfolder "dist_mac/NOVA-${APPVER}" -ov -format UDZO "NOVA_${APPVER}_mac.dmg"
 
       - name: Build PKG installer (primary for mac users)
         env:
@@ -95,8 +90,13 @@ jobs:
       - name: Install & verify PKG on runner (headless smoke test)
         shell: bash
         run: |
+          set -e
           APPVER=${GITHUB_REF_NAME#v}
-          sudo installer -pkg "NOVA_${APPVER}_mac.pkg" -target /
+          if ! sudo installer -pkg "NOVA_${APPVER}_mac.pkg" -target / -verboseR; then
+            echo "---- tail /var/log/install.log ----"
+            sudo tail -n 200 /var/log/install.log || true
+            exit 1
+          fi
           test -d "/Applications/NOVA.app"
           test -d "/Applications/Nova Tray.app"
           test -x "/Applications/NOVA.app/Contents/MacOS/NOVA"

@@ -1,36 +1,66 @@
 #!/bin/bash
+# postinstall for NOVA macOS PKG
+# - Always install LaunchAgent (so autostart works after real user install)
+# - Skip GUI/session actions on CI/headless runners
+# - Be resilient: don't fail if plist is missing; create a fallback
+
 set -euo pipefail
 
-# --- Resolve the active console user (for Desktop alias + starting tray) ---
-CURRENT_USER="$(/usr/sbin/scutil <<< 'show State:/Users/ConsoleUser' | awk '/Name :/ && $3 != "loginwindow" {print $3}' || true)"
-if [[ -z "${CURRENT_USER:-}" || "${CURRENT_USER}" == "root" ]]; then
-  CURRENT_USER="$(stat -f%Su /dev/console || true)"
-fi
+log() { echo "[postinstall] $*" >&2; }
 
 APP="/Applications/NOVA.app"
 TRAY_APP="/Applications/Nova Tray.app/Contents/MacOS/NovaTray"
 
-# --- Install LaunchAgent to auto-start Nova Tray at login (ALWAYS do this, even on CI) ---
+# -------- Detect current console user (for Desktop alias / launchctl GUI) --------
+CURRENT_USER="$(/usr/sbin/scutil <<< 'show State:/Users/ConsoleUser' | awk '/Name :/ && $3 != "loginwindow" {print $3}' || true)"
+if [[ -z "${CURRENT_USER:-}" || "${CURRENT_USER}" == "root" ]]; then
+  CURRENT_USER="$(stat -f%Su /dev/console 2>/dev/null || true)"
+fi
+log "CURRENT_USER='${CURRENT_USER:-<none>}'"
+
+# -------- Install LaunchAgent (ALWAYS) --------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PLIST_SRC="${SCRIPT_DIR}/com.novaai.tray.plist"
 PLIST_DST="/Library/LaunchAgents/com.novaai.tray.plist"
-/bin/mkdir -p "/Library/LaunchAgents"
-/bin/cp -f "$PLIST_SRC" "$PLIST_DST"
-/usr/sbin/chown root:wheel "$PLIST_DST"
-/bin/chmod 644 "$PLIST_DST"
 
-# --- If running on CI, stop here: no GUI/session actions on headless runners ---
+mkdir -p "/Library/LaunchAgents"
+
+if [[ -f "$PLIST_SRC" ]]; then
+  log "Installing LaunchAgent from repo plist -> $PLIST_DST"
+  cp -f "$PLIST_SRC" "$PLIST_DST"
+else
+  log "WARN: $PLIST_SRC not found; writing minimal fallback plist -> $PLIST_DST"
+  /usr/bin/printf '%s\n' \
+    '<?xml version="1.0" encoding="UTF-8"?>' \
+    '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+    '<plist version="1.0"><dict>' \
+    '  <key>Label</key><string>com.novaai.tray</string>' \
+    '  <key>ProgramArguments</key><array>' \
+    "    <string>${TRAY_APP}</string>" \
+    '  </array>' \
+    '  <key>RunAtLoad</key><true/>' \
+    '  <key>KeepAlive</key><true/>' \
+    '</dict></plist>' \
+    > "$PLIST_DST"
+fi
+
+# Permissions (best-effort)
+chown root:wheel "$PLIST_DST" 2>/dev/null || true
+chmod 0644 "$PLIST_DST" 2>/dev/null || true
+
+# -------- Skip GUI actions on CI/headless runners --------
 if [[ "${GITHUB_ACTIONS:-}" == "true" || "${CI:-}" == "true" ]]; then
+  log "CI/headless environment detected; skipping Desktop alias and launchctl GUI steps."
   exit 0
 fi
 
-# --- Create a Desktop alias to NOVA.app for the console user (best-effort) ---
+# -------- Create a Desktop alias/symlink for NOVA.app (best-effort) --------
 if [[ -n "${CURRENT_USER:-}" && "${CURRENT_USER}" != "root" ]]; then
   DESK="/Users/${CURRENT_USER}/Desktop"
-  /bin/mkdir -p "$DESK"
+  mkdir -p "$DESK" || true
 
-  # Try a Finder alias first (requires GUI); fall back to a symlink.
-  if pgrep -x Finder >/dev/null 2>&1; then
+  # Try Finder alias first (only if Finder available), else symlink
+  if /usr/bin/pgrep -x Finder >/dev/null 2>&1; then
     /usr/bin/osascript <<'OSA' || true
 tell application "Finder"
   try
@@ -44,19 +74,22 @@ end tell
 OSA
   fi
 
-  [[ -e "$DESK/NOVA.app" ]] || /bin/ln -sfn "$APP" "$DESK/NOVA.app" || true
-  /usr/sbin/chown -h "$CURRENT_USER":staff "$DESK/NOVA.app" 2>/dev/null || true
+  if [[ ! -e "$DESK/NOVA.app" ]]; then
+    ln -sfn "$APP" "$DESK/NOVA.app" || true
+  fi
+  chown -h "$CURRENT_USER":staff "$DESK/NOVA.app" 2>/dev/null || true
 fi
 
-# --- Start (or restart) the tray in the current GUI session (best-effort) ---
+# -------- Start (or restart) tray now in the user's GUI session (best-effort) --------
 if [[ -n "${CURRENT_USER:-}" && -x "$TRAY_APP" ]]; then
   UID="$(/usr/bin/id -u "$CURRENT_USER" 2>/dev/null || true)"
-  if [[ -n "${UID:-}" ]]; then
-    /bin/launchctl bootout   "gui/${UID}/com.novaai.tray" >/dev/null 2>&1 || true
-    /bin/launchctl bootstrap "gui/${UID}" "$PLIST_DST"     >/dev/null 2>&1 || true
-    /bin/launchctl enable    "gui/${UID}/com.novaai.tray"  >/dev/null 2>&1 || true
-    /bin/launchctl kickstart -k "gui/${UID}/com.novaai.tray" >/dev/null 2>&1 || true
+  if [[ -n "${UID:-}" && -f "$PLIST_DST" ]]; then
+    launchctl bootout   "gui/${UID}/com.novaai.tray" >/dev/null 2>&1 || true
+    launchctl bootstrap "gui/${UID}" "$PLIST_DST"     >/dev/null 2>&1 || true
+    launchctl enable    "gui/${UID}/com.novaai.tray"  >/dev/null 2>&1 || true
+    launchctl kickstart -k "gui/${UID}/com.novaai.tray" >/dev/null 2>&1 || true
   fi
 fi
 
+log "postinstall complete."
 exit 0
