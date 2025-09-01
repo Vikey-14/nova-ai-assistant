@@ -24,27 +24,42 @@ chmod 0755 "$PKGROOT/usr/bin/NOVA" "$PKGROOT/usr/bin/NovaTray"
 cp assets/nova_icon_256.png "$PKGROOT/usr/share/icons/hicolor/256x256/apps/nova.png"
 chmod 0644 "$PKGROOT/usr/share/icons/hicolor/256x256/apps/nova.png"
 
-# ---------------- Launcher (.desktop) — Applications menu entry ----------------
+# ---------------- App menu launchers (visible) ----------------
+# NOVA (main app)
 cat > "$PKGROOT/usr/share/applications/nova.desktop" << 'EOF'
 [Desktop Entry]
 Type=Application
 Name=NOVA
-Comment=Nova AI Assistant
+Comment=Talk to NOVA
 Exec=/usr/bin/NOVA
 Icon=nova
 Terminal=false
 Categories=Utility;
 StartupNotify=true
-StartupWMClass=Nova
+StartupWMClass=NOVA
 EOF
 chmod 0644 "$PKGROOT/usr/share/applications/nova.desktop"
 
-# ---------------- Autostart for tray ----------------
-cat > "$PKGROOT/etc/xdg/autostart/nova-tray.desktop" << 'EOF'
+# Nova Tray (visible so it's searchable in the app menu)
+cat > "$PKGROOT/usr/share/applications/nova-tray.desktop" << 'EOF'
 [Desktop Entry]
 Type=Application
 Name=Nova Tray
 Comment=Nova system tray helper
+Exec=/usr/bin/NovaTray
+Icon=nova
+Terminal=false
+Categories=Utility;
+StartupNotify=false
+EOF
+chmod 0644 "$PKGROOT/usr/share/applications/nova-tray.desktop"
+
+# ---------------- Autostart entry (hidden) ----------------
+cat > "$PKGROOT/etc/xdg/autostart/nova-tray.desktop" << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=Nova Tray (Autostart)
+Comment=Auto-start Nova tray helper
 Exec=/usr/bin/NovaTray
 Icon=nova
 X-GNOME-Autostart-enabled=true
@@ -79,9 +94,9 @@ Priority: optional
 Architecture: ${ARCH}
 Maintainer: Nova Team <support@example.com>
 Homepage: https://your-site.example
-Description: Nova – voice AI assistant with tray helper
- Installs Nova (main app) and NovaTray (system tray helper).
-Depends: libc6 (>= 2.31), libstdc++6 (>= 10), libx11-6, libxcb1, libxext6, libxrender1, libxrandr2, libxi6, libxfixes3, libxcursor1, libxinerama1, libxss1, libgtk-3-0 | libgtk2.0-0, libasound2, libpulse0
+Description: NOVA – voice AI assistant with tray helper
+ Installs NOVA (main app) and NovaTray (system tray helper).
+Depends: libc6 (>= 2.31), libstdc++6 (>= 10), libx11-6, libxcb1, libxext6, libxrender1, libxrandr2, libxi6, libxfixes3, libxcursor1, libxinerama1, libxss1, libgtk-3-0 | libgtk2.0-0, libasound2t64 | libasound2, libpulse0
 Recommends: ffmpeg | mpg123
 EOF
 
@@ -114,11 +129,9 @@ for d in /home/*; do
   cp -f "$APP_DESKTOP" "$desk/NOVA.desktop" 2>/dev/null || true
   chmod +x "$desk/NOVA.desktop" 2>/dev/null || true
   chown "$u":"$u" "$desk/NOVA.desktop" 2>/dev/null || true
-  # Mark trusted to avoid "untrusted launcher" (skip on WSL or no GUI bus)
+  # Mark trusted so GNOME won't show "untrusted launcher" (best effort)
   if ! is_wsl && command -v gio >/dev/null 2>&1; then
-    if su - "$u" -c 'test -n "$DBUS_SESSION_BUS_ADDRESS"' 2>/dev/null; then
-      su - "$u" -c "gio set \"$desk/NOVA.desktop\" metadata::trusted true" 2>/dev/null || true
-    fi
+    su - "$u" -c "gio set \"$desk/NOVA.desktop\" metadata::trusted true" 2>/dev/null || true
   fi
 done
 
@@ -143,7 +156,7 @@ exit 0
 EOF
 chmod 0755 "$PKGROOT/DEBIAN/postinst"
 
-# ---------------- Post-remove (unchanged) ----------------
+# ---------------- Post-remove ----------------
 cat > "$PKGROOT/DEBIAN/postrm" << 'EOF'
 #!/bin/sh
 set -e
