@@ -10,26 +10,32 @@ fi
 APP="/Applications/NOVA.app"
 TRAY_APP="/Applications/Nova Tray.app/Contents/MacOS/NovaTray"
 
-# --- Install LaunchAgent to auto-start Nova Tray at login ---
-PLIST_SRC="$(cd "$(dirname "$0")" && pwd)/com.novaai.tray.plist"
+# --- Install LaunchAgent to auto-start Nova Tray at login (ALWAYS do this, even on CI) ---
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLIST_SRC="${SCRIPT_DIR}/com.novaai.tray.plist"
 PLIST_DST="/Library/LaunchAgents/com.novaai.tray.plist"
 /bin/mkdir -p "/Library/LaunchAgents"
 /bin/cp -f "$PLIST_SRC" "$PLIST_DST"
 /usr/sbin/chown root:wheel "$PLIST_DST"
 /bin/chmod 644 "$PLIST_DST"
 
+# --- If running on CI, stop here: no GUI/session actions on headless runners ---
+if [[ "${GITHUB_ACTIONS:-}" == "true" || "${CI:-}" == "true" ]]; then
+  exit 0
+fi
+
 # --- Create a Desktop alias to NOVA.app for the console user (best-effort) ---
 if [[ -n "${CURRENT_USER:-}" && "${CURRENT_USER}" != "root" ]]; then
   DESK="/Users/${CURRENT_USER}/Desktop"
   /bin/mkdir -p "$DESK"
 
-  # Try a Finder alias first (looks nicest); fall back to a symlink.
-  if /usr/bin/osascript -e 'return 1' >/dev/null 2>&1; then
-    /usr/bin/osascript <<OSA || true
+  # Try a Finder alias first (requires GUI); fall back to a symlink.
+  if pgrep -x Finder >/dev/null 2>&1; then
+    /usr/bin/osascript <<'OSA' || true
 tell application "Finder"
   try
-    set d to POSIX file "$DESK" as alias
-    set targetApp to POSIX file "$APP" as alias
+    set d to (path to desktop folder) as alias
+    set targetApp to POSIX file "/Applications/NOVA.app" as alias
     if not (exists file "NOVA.app" of d) then
       make new alias file at d to targetApp with properties {name:"NOVA.app"}
     end if
@@ -38,17 +44,14 @@ end tell
 OSA
   fi
 
-  # Fallback: plain symlink if alias wasn’t created
-  if [[ ! -e "$DESK/NOVA.app" ]]; then
-    /bin/ln -sfn "$APP" "$DESK/NOVA.app" || true
-  fi
+  [[ -e "$DESK/NOVA.app" ]] || /bin/ln -sfn "$APP" "$DESK/NOVA.app" || true
   /usr/sbin/chown -h "$CURRENT_USER":staff "$DESK/NOVA.app" 2>/dev/null || true
 fi
 
-# --- Start (or restart) the tray for the current GUI session now (best-effort) ---
+# --- Start (or restart) the tray in the current GUI session (best-effort) ---
 if [[ -n "${CURRENT_USER:-}" && -x "$TRAY_APP" ]]; then
   UID="$(/usr/bin/id -u "$CURRENT_USER" 2>/dev/null || true)"
-  if [[ -n "$UID" ]]; then
+  if [[ -n "${UID:-}" ]]; then
     /bin/launchctl bootout   "gui/${UID}/com.novaai.tray" >/dev/null 2>&1 || true
     /bin/launchctl bootstrap "gui/${UID}" "$PLIST_DST"     >/dev/null 2>&1 || true
     /bin/launchctl enable    "gui/${UID}/com.novaai.tray"  >/dev/null 2>&1 || true

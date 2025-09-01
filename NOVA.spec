@@ -38,7 +38,14 @@ hiddenimports = [
     # Tk / PIL / Matplotlib glue
     'tkinter',
     'PIL._tkinter_finder',
-    'matplotlib.backends.backend_tkagg'
+    'matplotlib.backends.backend_tkagg',
+]
+
+# ✅ Hard-pin SAPI5 + COM glue (explicit, prevents lazy-import misses)
+hiddenimports += [
+    'pyttsx3.drivers',
+    'pyttsx3.drivers.sapi5',
+    'win32com.client',
 ]
 
 # Ensure dynamically imported weather handler is frozen
@@ -60,7 +67,7 @@ hiddenimports += [
     'playsound',
 ]
 
-# NEW: used by tray’s stricter window/process detection
+# Tray’s stricter window/process detection
 hiddenimports += ['psutil']
 
 # Optional vendor TTS stacks (only if installed)
@@ -74,7 +81,13 @@ for opt_pkg in [
     except Exception:
         pass
 
-# Your local project modules (leave out 'utils' on purpose; runtime hook pins local utils.py)
+# Optional: include edge-tts if present (harmless if absent)
+try:
+    hiddenimports += collect_submodules('edge_tts')
+except Exception:
+    pass
+
+# Your local project modules (leave out 'utils'; runtime hook pins local utils.py)
 hiddenimports += [
     'gui_interface',
     'core_engine',
@@ -158,7 +171,7 @@ for fname in [
 # Ensure local utils.py is present for the runtime hook to pin
 add_file_if_exists('utils.py', '.')
 
-# ✅ Explicitly include the new blocklist file (and still copy the whole data/ below)
+# Explicit include for blocklist and then whole data/
 add_file_if_exists('data/name_blocklist_en.txt', 'data')
 
 # Catch-all for any other root-level JSONs
@@ -176,10 +189,8 @@ add_dir_nonpy('data', 'data')
 # Include assets (icons, images used by tray tip, etc.)
 add_dir_nonpy('assets', 'assets')
 
-# ---------- ONLY CHANGE HERE ----------
-# Optional hooks folder (Windows-only hooks now live in hooks_win/)
+# Optional hooks folder (Windows-only hooks live in hooks_win/)
 hookspaths = [str(BASE / 'hooks_win')] if (BASE / 'hooks_win').is_dir() else []
-# --------------------------------------
 
 # =========================================================
 # ==============  MAIN APP: NOVA.exe  =====================
@@ -192,12 +203,10 @@ a_main = Analysis(
     hiddenimports=hiddenimports,
     hookspath=hookspaths,
     hooksconfig={},
-    # ---------- ONLY CHANGE HERE ----------
     runtime_hooks=[
         str(BASE / 'hooks_win' / 'rthook_force_local_utils.py'),
         str(BASE / 'hooks_win' / 'rthook_mpl_quiet.py'),
     ],
-    # --------------------------------------
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -237,7 +246,10 @@ a_tray = Analysis(
     hiddenimports=hiddenimports,
     hookspath=hookspaths,
     hooksconfig={},
-    runtime_hooks=[],
+    runtime_hooks=[
+        str(BASE / 'hooks_win' / 'rthook_force_local_utils.py'),
+        # Tray doesn't need Matplotlib quiet hook; omit to keep it lean
+    ],
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

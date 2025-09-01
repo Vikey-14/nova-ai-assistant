@@ -1,11 +1,43 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>Label</key><string>com.novaai.tray</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/Applications/Nova Tray.app/Contents/MacOS/NovaTray</string>
-  </array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-</dict></plist>
+<plist version="1.0">
+  <dict>
+    <key>Label</key>
+    <string>com.novaai.tray</string>
+
+    <key>ProgramArguments</key>
+    <array>
+      <string>/Applications/Nova Tray.app/Contents/MacOS/NovaTray</string>
+    </array>
+
+    <!-- Launch when the user logs in -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Keep it alive unless the user quits it intentionally -->
+    <key>KeepAlive</key>
+    <dict>
+      <key>SuccessfulExit</key><false/>
+    </dict>
+
+    <!-- Only load in GUI (Aqua) sessions, not at the loginwindow or daemons -->
+    <key>LimitLoadToSessionType</key>
+    <array>
+      <string>Aqua</string>
+    </array>
+
+    <!-- Helpful logs for debugging -->
+    <key>StandardOutPath</key>
+    <string>/tmp/nova-tray.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/nova-tray.err.log</string>
+
+    <!-- Optional but fine: mark it as an interactive agent -->
+    <key>ProcessType</key>
+    <string>Interactive</string>
+
+    <!-- Optional: where it starts from (not strictly required) -->
+    <key>WorkingDirectory</key>
+    <string>/Applications/Nova Tray.app/Contents/MacOS</string>
+  </dict>
+</plist>

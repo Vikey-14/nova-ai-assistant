@@ -1,4 +1,5 @@
 name: Linux build (.deb)
+
 on:
   workflow_dispatch:
   push:
@@ -14,19 +15,23 @@ jobs:
         with:
           python-version: "3.11"
 
+      # ---- System deps (PyAudio needs PortAudio headers) ----
       - name: System deps
         run: |
-          sudo apt-get update
-          # Common deps
-          sudo apt-get install -y ffmpeg libpulse0 desktop-file-utils
+          sudo apt-get -qq update
+          sudo apt-get -yqq install \
+            build-essential python3-dev pkg-config \
+            portaudio19-dev libportaudio2 libportaudiocpp0 \
+            libasound2-dev libjack-jackd2-dev \
+            ffmpeg libpulse0 desktop-file-utils
           # Ubuntu 24.04 renamed libasound2 -> libasound2t64
-          sudo apt-get install -y libasound2 || sudo apt-get install -y libasound2t64
+          sudo apt-get -yqq install libasound2 || sudo apt-get -yqq install libasound2t64
 
       - name: Python deps
         run: |
           python -m pip install --upgrade pip wheel
-          pip install -r requirements.linux.txt pyinstaller edge-tts gTTS playsound
-          pip cache purge || true
+          # If you use a single requirements.txt, change the filename here
+          pip install -r requirements.linux.txt pyinstaller
 
       - name: Build with PyInstaller (Linux)
         run: |
@@ -35,15 +40,17 @@ jobs:
           ls -lh dist_linux || true
 
       - name: Build .deb
+        env:
+          APPVER: ${{ github.ref_name }}
         run: |
-          APPVER="${GITHUB_REF_NAME#v}"
+          APPVER="${APPVER#v}"
           if [ -z "$APPVER" ]; then APPVER="1.0.0"; fi
           bash pack_deb.sh "${APPVER}-1"
           ls -lh dist_linux/*.deb
 
       - name: Install & verify (smoke test)
         run: |
-          sudo apt-get install -y ./dist_linux/*.deb
+          sudo apt-get -yqq install ./dist_linux/*.deb
           test -f /usr/share/applications/nova.desktop
           test -f /etc/xdg/autostart/nova-tray.desktop
           echo "Linux .deb installed & basic files present."

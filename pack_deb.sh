@@ -96,7 +96,7 @@ Maintainer: Nova Team <support@example.com>
 Homepage: https://your-site.example
 Description: NOVA – voice AI assistant with tray helper
  Installs NOVA (main app) and NovaTray (system tray helper).
-Depends: libc6 (>= 2.31), libstdc++6 (>= 10), libx11-6, libxcb1, libxext6, libxrender1, libxrandr2, libxi6, libxfixes3, libxcursor1, libxinerama1, libxss1, libgtk-3-0 | libgtk2.0-0, libasound2t64 | libasound2, libpulse0
+Depends: libc6 (>= 2.31), libstdc++6 (>= 10), libx11-6, libxcb1, libxext6, libxrender1, libxrandr2, libxi6, libxfixes3, libxcursor1, libxinerama1, libxss1, libgtk-3-0 | libgtk2.0-0, libasound2t64 | libasound2, libpulse0, libportaudio2
 Recommends: ffmpeg | mpg123
 EOF
 
