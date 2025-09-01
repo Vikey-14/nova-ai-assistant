@@ -155,6 +155,28 @@ jobs:
           dmg=$(ls NOVA_*_mac.dmg | head -n1); cp "$dmg" NOVA_mac.dmg
           shasum -a 256 * > SHA256SUMS.txt || true
 
+      - name: Prepare release body (no linter warnings)
+        run: |
+          cat > release_assets/RELEASE_BODY.md <<EOF
+          ## Download (pick your OS)
+
+          🪟 **Windows**
+          - Installer: **NovaSetup.exe**
+          - Portable: **NOVA_${APPVER}_windows_portable.zip**
+
+          🍎 **macOS**
+          - PKG (recommended): **NOVA_${APPVER}_mac.pkg**
+          - DMG: **NOVA_${APPVER}_mac.dmg**
+          - App zips: **NOVA_${APPVER}_mac.app.zip**, **Nova_Tray_${APPVER}_mac.app.zip**
+
+          🐧 **Linux (Debian/Ubuntu)**
+          - .deb: **nova_ai_assistant_${APPVER}-1_amd64.deb**
+            (stable copy: **nova_ai_assistant_amd64.deb**)
+
+          🔐 **Checksums**
+          - **SHA256SUMS.txt**
+          EOF
+
       - name: Create/Update GitHub Release (attach mac files + nice body)
         uses: softprops/action-gh-release@v2
         with:
@@ -162,24 +184,7 @@ jobs:
           name: NOVA ${{ github.ref_name }}
           draft: false
           prerelease: false
-          body: |
-            ## Download (pick your OS)
-
-            🪟 **Windows**
-            - Installer: **NovaSetup.exe**
-            - Portable: **NOVA_${{ env.APPVER }}_windows_portable.zip**
-
-            🍎 **macOS**
-            - PKG (recommended): **NOVA_${{ env.APPVER }}_mac.pkg**
-            - DMG: **NOVA_${{ env.APPVER }}_mac.dmg**
-            - App zips: **NOVA_${{ env.APPVER }}_mac.app.zip**, **Nova_Tray_${{ env.APPVER }}_mac.app.zip**
-
-            🐧 **Linux (Debian/Ubuntu)**
-            - .deb: **nova_ai_assistant_${{ env.APPVER }}-1_amd64.deb**
-              (stable copy: **nova_ai_assistant_amd64.deb**)
-
-            🔐 **Checksums**
-            - **SHA256SUMS.txt**
+          body_path: release_assets/RELEASE_BODY.md
           files: |
             release_assets/NOVA_*_mac.dmg
             release_assets/NOVA_*_mac.pkg
