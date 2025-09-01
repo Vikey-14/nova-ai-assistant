@@ -1,4 +1,5 @@
 name: macOS build (.app + DMG + PKG)
+
 on:
   workflow_dispatch:
   push:
@@ -23,6 +24,10 @@ jobs:
           python -m pip install --upgrade pip wheel
           pip install -r requirements.macos.txt pyinstaller edge-tts gTTS playsound
           pip cache purge || true
+
+      - name: Derive APPVER from tag
+        shell: bash
+        run: echo "APPVER=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
 
       - name: Make .icns from assets/nova_icon_256.png
         run: |
@@ -67,7 +72,6 @@ jobs:
         env:
           TMPDIR: ${{ env.TMPDIR }}
         run: |
-          APPVER=${GITHUB_REF_NAME#v}
           mkdir -p "dist_mac/NOVA-${APPVER}"
           cp -R "dist/NOVA.app"      "dist_mac/NOVA-${APPVER}/"
           cp -R "dist/Nova Tray.app" "dist_mac/NOVA-${APPVER}/"
@@ -77,7 +81,6 @@ jobs:
         env:
           TMPDIR: ${{ env.TMPDIR }}
         run: |
-          APPVER=${GITHUB_REF_NAME#v}
           chmod +x mac/pkg/scripts/postinstall
           pkgbuild --identifier com.novaai.NOVA \
                    --version "$APPVER" \
@@ -91,12 +94,21 @@ jobs:
         shell: bash
         run: |
           set -e
-          APPVER=${GITHUB_REF_NAME#v}
-          if ! sudo installer -pkg "NOVA_${APPVER}_mac.pkg" -target / -verboseR; then
+
+          # DEBUG: confirm the embedded postinstall is the CI-safe one
+          pkgutil --expand-full "NOVA_${APPVER}_mac.pkg" expanded_pkg
+          ls -la expanded_pkg/Scripts || true
+          echo "----- postinstall (first 120 lines) -----"
+          sed -n '1,120p' expanded_pkg/Scripts/postinstall || true
+
+          # Pass CI flags so postinstall detects headless and exits early
+          if ! sudo env CI=1 GITHUB_ACTIONS=1 installer -pkg "NOVA_${APPVER}_mac.pkg" -target / -verboseR; then
             echo "---- tail /var/log/install.log ----"
             sudo tail -n 200 /var/log/install.log || true
             exit 1
           fi
+
+          # Minimal layout checks
           test -d "/Applications/NOVA.app"
           test -d "/Applications/Nova Tray.app"
           test -x "/Applications/NOVA.app/Contents/MacOS/NOVA"

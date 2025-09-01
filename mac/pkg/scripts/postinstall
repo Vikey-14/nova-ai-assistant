@@ -12,8 +12,12 @@ APP="/Applications/NOVA.app"
 TRAY_APP="/Applications/Nova Tray.app/Contents/MacOS/NovaTray"
 
 # -------- Detect current console user (for Desktop alias / launchctl GUI) --------
-CURRENT_USER="$(/usr/sbin/scutil <<< 'show State:/Users/ConsoleUser' | awk '/Name :/ && $3 != "loginwindow" {print $3}' || true)"
-if [[ -z "${CURRENT_USER:-}" || "${CURRENT_USER}" == "root" ]]; then
+CURRENT_USER="$(
+  /usr/sbin/scutil <<'SCUT' 2>/dev/null | awk '/Name :/ && $3 != "loginwindow" {print $3}' || true
+show State:/Users/ConsoleUser
+SCUT
+)"
+if [ -z "${CURRENT_USER:-}" ] || [ "${CURRENT_USER}" = "root" ]; then
   CURRENT_USER="$(stat -f%Su /dev/console 2>/dev/null || true)"
 fi
 log "CURRENT_USER='${CURRENT_USER:-<none>}'"
@@ -82,14 +86,15 @@ fi
 
 # -------- Start (or restart) tray now in the user's GUI session (best-effort) --------
 if [[ -n "${CURRENT_USER:-}" && -x "$TRAY_APP" ]]; then
-  UID="$(/usr/bin/id -u "$CURRENT_USER" 2>/dev/null || true)"
-  if [[ -n "${UID:-}" && -f "$PLIST_DST" ]]; then
-    launchctl bootout   "gui/${UID}/com.novaai.tray" >/dev/null 2>&1 || true
-    launchctl bootstrap "gui/${UID}" "$PLIST_DST"     >/dev/null 2>&1 || true
-    launchctl enable    "gui/${UID}/com.novaai.tray"  >/dev/null 2>&1 || true
-    launchctl kickstart -k "gui/${UID}/com.novaai.tray" >/dev/null 2>&1 || true
+  USER_UID="$(/usr/bin/id -u "$CURRENT_USER" 2>/dev/null || true)"
+  if [[ -n "${USER_UID:-}" && -f "$PLIST_DST" ]]; then
+    launchctl bootout   "gui/${USER_UID}/com.novaai.tray" >/dev/null 2>&1 || true
+    launchctl bootstrap "gui/${USER_UID}" "$PLIST_DST"     >/dev/null 2>&1 || true
+    launchctl enable    "gui/${USER_UID}/com.novaai.tray"  >/dev/null 2>&1 || true
+    launchctl kickstart -k "gui/${USER_UID}/com.novaai.tray" >/dev/null 2>&1 || true
   fi
 fi
+
 
 log "postinstall complete."
 exit 0
