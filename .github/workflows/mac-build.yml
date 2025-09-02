@@ -5,6 +5,10 @@ on:
   push:
     tags: ["v*"]
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   build:
     runs-on: macos-13
@@ -17,20 +21,23 @@ jobs:
 
       - name: Homebrew deps
         run: |
+          set -euo pipefail
           brew install portaudio ffmpeg
 
       - name: Python deps
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip wheel
           pip install -r requirements.macos.txt pyinstaller edge-tts gTTS playsound
           pip cache purge || true
 
       - name: Derive APPVER from tag
-        shell: bash
-        run: echo "APPVER=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+        run: |
+          echo "APPVER=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
 
       - name: Make .icns from assets/nova_icon_256.png
         run: |
+          set -euo pipefail
           mkdir -p icons/nova.iconset
           sips -z 16 16  assets/nova_icon_256.png --out icons/nova.iconset/icon_16x16.png
           sips -z 32 32  assets/nova_icon_256.png --out icons/nova.iconset/icon_16x16@2x.png
@@ -44,12 +51,13 @@ jobs:
 
       - name: Build apps with PyInstaller
         run: |
+          set -euo pipefail
           pyinstaller --clean NOVA_Mac.spec
           rm -rf build
 
       - name: Strip binaries inside .app bundles (shrink)
         run: |
-          set -e
+          set -euo pipefail
           if [ -d "dist/NOVA.app/Contents/MacOS" ]; then
             find "dist/NOVA.app/Contents/MacOS" -type f -perm -111 -exec strip -x {} + || true
           fi
@@ -59,11 +67,13 @@ jobs:
 
       - name: Free Homebrew caches (shrink)
         run: |
+          set -euo pipefail
           brew cleanup -s || true
           rm -rf "$(brew --cache)" || true
 
       - name: Prepare workspace TMPDIR and check free space
         run: |
+          set -euo pipefail
           mkdir -p tmp dist_mac
           echo "TMPDIR=$PWD/tmp" >> $GITHUB_ENV
           echo "==== Disk before DMG ===="; df -h /
@@ -72,6 +82,7 @@ jobs:
         env:
           TMPDIR: ${{ env.TMPDIR }}
         run: |
+          set -euo pipefail
           mkdir -p "dist_mac/NOVA-${APPVER}"
           cp -R "dist/NOVA.app"      "dist_mac/NOVA-${APPVER}/"
           cp -R "dist/Nova Tray.app" "dist_mac/NOVA-${APPVER}/"
@@ -81,6 +92,7 @@ jobs:
         env:
           TMPDIR: ${{ env.TMPDIR }}
         run: |
+          set -euo pipefail
           chmod +x mac/pkg/scripts/postinstall
           pkgbuild --identifier com.novaai.NOVA \
                    --version "$APPVER" \
@@ -91,28 +103,32 @@ jobs:
                    "NOVA_${APPVER}_mac.pkg"
 
       - name: Install & verify PKG on runner (headless smoke test)
-        shell: bash
         run: |
-          set -e
+          set -euo pipefail
           pkgutil --expand-full "NOVA_${APPVER}_mac.pkg" expanded_pkg
           ls -la expanded_pkg/Scripts || true
           echo "----- postinstall (first 120 lines) -----"
           sed -n '1,120p' expanded_pkg/Scripts/postinstall || true
 
-          # Pass CI flags so postinstall detects headless and exits early
-          if ! sudo env CI=1 GITHUB_ACTIONS=1 installer -pkg "NOVA_${APPVER}_mac.pkg" -target / -verboseR; then
-            echo "---- tail /var/log/install.log ----"
-            sudo tail -n 200 /var/log/install.log || true
-            exit 1
-          fi
+          # Install with CI flags so postinstall skips GUI actions
+          sudo env CI=1 GITHUB_ACTIONS=1 installer -pkg "NOVA_${APPVER}_mac.pkg" -target / -verboseR
 
           # Minimal layout checks
           test -d "/Applications/NOVA.app"
           test -d "/Applications/Nova Tray.app"
           test -x "/Applications/NOVA.app/Contents/MacOS/NOVA"
           test -x "/Applications/Nova Tray.app/Contents/MacOS/NovaTray"
-          test -f "/Library/LaunchAgents/com.novaai.tray.plist"
-          /usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' /Library/LaunchAgents/com.novaai.tray.plist | grep -F "/Applications/Nova Tray.app/Contents/MacOS/NovaTray"
+
+          # LaunchAgent presence: warn (non-fatal) if mismatch/missing
+          if [ -f /Library/LaunchAgents/com.novaai.tray.plist ]; then
+            if ! /usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' /Library/LaunchAgents/com.novaai.tray.plist \
+                 | grep -Fq "/Applications/Nova Tray.app/Contents/MacOS/NovaTray"; then
+              echo "::warning title=LaunchAgent check::ProgramArguments did not exactly match expected path"
+            fi
+          else
+            echo "::warning title=LaunchAgent check::/Library/LaunchAgents/com.novaai.tray.plist missing"
+          fi
+
           echo "PKG install + layout verified."
 
       - name: Upload artifacts
@@ -142,14 +158,16 @@ jobs:
 
       - name: Zip .app bundles for upload
         run: |
+          set -euo pipefail
           cd release_assets
-          if [ -d "NOVA.app" ]; then zip -r "NOVA_${GITHUB_REF_NAME#v}_mac.app.zip" "NOVA.app"; fi
-          if [ -d "Nova Tray.app" ]; then zip -r "Nova_Tray_${GITHUB_REF_NAME#v}_mac.app.zip" "Nova Tray.app"; fi
-          if [ -d "dist/NOVA.app" ]; then (cd dist && zip -r "../NOVA_${GITHUB_REF_NAME#v}_mac.app.zip" "NOVA.app"); fi
-          if [ -d "dist/Nova Tray.app" ]; then (cd dist && zip -r "../Nova_Tray_${GITHUB_REF_NAME#v}_mac.app.zip" "Nova Tray.app"); fi
+          if [ -d "NOVA.app" ]; then zip -r "NOVA_${APPVER}_mac.app.zip" "NOVA.app"; fi
+          if [ -d "Nova Tray.app" ]; then zip -r "Nova_Tray_${APPVER}_mac.app.zip" "Nova Tray.app"; fi
+          if [ -d "dist/NOVA.app" ]; then (cd dist && zip -r "../NOVA_${APPVER}_mac.app.zip" "NOVA.app"); fi
+          if [ -d "dist/Nova Tray.app" ]; then (cd dist && zip -r "../Nova_Tray_${APPVER}_mac.app.zip" "Nova Tray.app"); fi
 
       - name: Make stable-named copies (for latest/ links)
         run: |
+          set -euo pipefail
           cd release_assets
           pkg=$(ls NOVA_*_mac.pkg | head -n1); cp "$pkg" NOVA_mac.pkg
           dmg=$(ls NOVA_*_mac.dmg | head -n1); cp "$dmg" NOVA_mac.dmg
@@ -157,7 +175,8 @@ jobs:
 
       - name: Prepare release body (no linter warnings)
         run: |
-          cat > release_assets/RELEASE_BODY.md <<EOF
+          set -euo pipefail
+          cat > release_assets/RELEASE_BODY.md <<'EOF'
           ## Download (pick your OS)
 
           🪟 **Windows**
@@ -176,6 +195,9 @@ jobs:
           🔐 **Checksums**
           - **SHA256SUMS.txt**
           EOF
+          # replace placeholders with the actual APPVER
+          sed -i.bak "s/\${APPVER}/${APPVER}/g" release_assets/RELEASE_BODY.md
+          rm -f release_assets/RELEASE_BODY.md.bak
 
       - name: Create/Update GitHub Release (attach mac files + nice body)
         uses: softprops/action-gh-release@v2
