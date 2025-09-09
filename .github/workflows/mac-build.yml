@@ -27,8 +27,10 @@ jobs:
         run: |
           set -euo pipefail
           brew update
-          # Added cmake, pkg-config, espeak-ng, onnxruntime for building Piper
-          brew install cmake pkg-config espeak-ng onnxruntime portaudio ffmpeg jq
+          # install what we actually need (leave cmake alone)
+          brew install jq ffmpeg portaudio ninja pkg-config
+          # show the preinstalled cmake we’ll use
+          cmake --version
 
 
       - name: Fix pinned cmake on runner
@@ -43,7 +45,7 @@ jobs:
           brew install cmake
           cmake --version
 
-          
+
       - name: Python deps
         run: |
           set -euo pipefail
