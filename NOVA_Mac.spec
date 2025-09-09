@@ -3,7 +3,8 @@ import os
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
-BASE = Path.cwd()
+# Always absolute (fixes CI "relative_to" crash)
+BASE = Path(__file__).resolve().parent
 ICON_ICNS = str(BASE / "icons" / "nova.icns")
 
 # ---------------- Version (from env APPVER or VERSION.txt) ----------------
@@ -17,36 +18,41 @@ def resolve_version() -> str:
 
 APPVER = resolve_version()
 
-# ---- data files as (src, dst) pairs ----
+# ---------------- data files ----------------
 datas = []
-for root in ["assets", "data", "handlers", "logs"]:
-    p = BASE / root
-    if p.is_dir():
-        for f in p.rglob("*"):
-            if f.is_file():
-                datas.append((str(f), str(f.parent.relative_to(BASE))))
 
-for fn in ["settings.json", "curiosity_data.json", "utils.py"]:
-    if (BASE / fn).exists():
-        datas.append((str(BASE / fn), "."))
+def add_tree(rel_path: str) -> None:
+    """Add all files under rel_path; keep repo-relative layout in bundle."""
+    root = (BASE / rel_path).resolve()
+    if not root.exists():
+        print(f"[spec] skip missing: {root}")
+        return
+    base_abs = BASE.resolve()
+    for f in root.rglob("*"):
+        if not f.is_file():
+            continue
+        f_abs = f.resolve()
+        try:
+            dst = str(f_abs.parent.relative_to(base_abs))
+        except Exception:
+            dst = os.path.relpath(str(f_abs.parent), str(base_abs))
+        datas.append((str(f_abs), dst))
 
-# --- Include ONLY the mac Piper bits + all models & manifest ---
-def add_tree(root: str):
-    root = Path(root)
-    if root.is_dir():
-        for f in root.rglob("*"):
-            if f.is_file():
-                dst = str(f.parent.relative_to(BASE))
-                datas.append((str(f), dst))
+# project folders
+for top in ["assets", "data", "handlers", "logs"]:
+    add_tree(top)
 
-# Piper manifest + models for all languages you ship
+# single files at project root
+for fn in ["settings.json", "curiosity_data.json", "utils.py", "third_party/piper/models_manifest.json"]:
+    p = BASE / fn
+    if p.exists():
+        datas.append((str(p), "."))
+
+# ---- Include Piper models & mac binaries (+ espeak data reused from linux-x64) ----
 add_tree("third_party/piper/models")
-if (BASE / "third_party/piper/models_manifest.json").exists():
-    datas.append(("third_party/piper/models_manifest.json", "third_party/piper"))
-
-# Piper binaries for BOTH mac arches (don’t pull linux/windows to keep size down)
 add_tree("third_party/piper/macos-x64")
 add_tree("third_party/piper/macos-arm64")
+add_tree("third_party/piper/linux-x64/espeak-ng-data")
 
 # hidden imports & extra package data
 hidden = []
@@ -66,7 +72,7 @@ for m in ["matplotlib", "dateparser", "dateparser_data", "certifi"]:
 
 excludes = ["win32com", "comtypes", "pythoncom", "pywintypes", "wmi"]
 
-# ---- main app ----
+# ---- main app (user-visible name: Nova) ----
 a1 = Analysis(["main.py"], pathex=[str(BASE)], datas=datas,
               hiddenimports=hidden, excludes=excludes)
 pyz1 = PYZ(a1.pure, a1.zipped_data)
@@ -89,7 +95,7 @@ app_main = BUNDLE(
     },
 )
 
-# ---- tray app ----
+# ---- tray app (user-visible name: Nova Tray) ----
 tray_entry = "tray_app.py" if (BASE / "tray_app.py").exists() else "tray_linux.py"
 a2 = Analysis([tray_entry], pathex=[str(BASE)], datas=datas,
               hiddenimports=hidden, excludes=excludes, noarchive=True)
