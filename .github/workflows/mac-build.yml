@@ -13,7 +13,7 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [macos-13, macos-14]   # 13 = Intel, 14 = Apple Silicon
+        os: [macos-13, macos-14]   # 13 = Intel (x86_64), 14 = Apple Silicon (arm64)
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -26,7 +26,9 @@ jobs:
       - name: Homebrew deps
         run: |
           set -euo pipefail
-          brew install portaudio ffmpeg jq
+          brew update
+          # Added cmake, pkg-config, espeak-ng, onnxruntime for building Piper
+          brew install cmake pkg-config espeak-ng onnxruntime portaudio ffmpeg jq
 
       - name: Python deps
         run: |
@@ -35,61 +37,49 @@ jobs:
           pip install -r requirements.macos.txt pyinstaller edge-tts gTTS playsound
           pip cache purge || true
 
-      - name: Fetch Piper macOS binaries (x64 + arm64)
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Change when you want to update Piper
-          PIPER_TAG: v1.2.0
+      # ⬇️ REPLACED the old "Fetch Piper macOS binaries" step with this
+      - name: Build Piper from source (per-arch)
         run: |
           set -euo pipefail
-          mkdir -p third_party/piper/macos-x64 third_party/piper/macos-arm64
 
-          # Get the release JSON
-          JSON=$(curl -fsSL -H "Authorization: Bearer $GH_TOKEN" \
-                 "https://api.github.com/repos/rhasspy/piper/releases/tags/${PIPER_TAG}")
+          rm -rf /tmp/piper_src /tmp/piper_build
+          git clone --depth=1 https://github.com/rhasspy/piper.git /tmp/piper_src
 
-          # Pick URLs using jq (case-insensitive)
-          X64_URL=$(echo "$JSON" | jq -r '.assets[] | select(.name|test("(?i)mac.*(x86_64|x64|intel).*\\.tar\\.gz$")) | .browser_download_url' | head -n1)
-          ARM_URL=$(echo "$JSON" | jq -r '.assets[] | select(.name|test("(?i)mac.*(arm64|aarch64|apple).*\\.tar\\.gz$")) | .browser_download_url' | head -n1)
+          cmake -S /tmp/piper_src -B /tmp/piper_build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/piper_build --config Release -j
 
-          if [ -z "${X64_URL:-}" ] || [ -z "${ARM_URL:-}" ]; then
-            echo "Could not locate Piper macOS assets in ${PIPER_TAG}."
-            exit 1
+          BIN="/tmp/piper_build/piper"
+          file "$BIN" || true
+
+          ARCH="$(uname -m)"
+          if [ "$ARCH" = "arm64" ]; then
+            DEST="third_party/piper/macos-arm64"
+          else
+            DEST="third_party/piper/macos-x64"
           fi
+          mkdir -p "$DEST"
 
-          curl -fL -o /tmp/piper_x64.tgz "$X64_URL"
-          curl -fL -o /tmp/piper_arm.tgz "$ARM_URL"
+          # Piper binary
+          cp -av "$BIN" "$DEST/piper"
+          chmod +x "$DEST/piper"
 
-          # Reject tiny HTML error files
-          [ "$(stat -f%z /tmp/piper_x64.tgz)" -gt 1000000 ] || { echo "x64 tgz too small"; exit 1; }
-          [ "$(stat -f%z /tmp/piper_arm.tgz)" -gt 1000000 ] || { echo "arm tgz too small"; exit 1; }
+          # Bundle runtime libs & data next to the binary
+          ONNX_PREFIX="$(brew --prefix onnxruntime)"
+          ESPEAK_PREFIX="$(brew --prefix espeak-ng)"
 
-          # Unpack + place binaries
-          rm -rf /tmp/piper
-          tar -xzf /tmp/piper_x64.tgz -C /tmp
-          cp -av /tmp/piper/piper third_party/piper/macos-x64/
-          cp -av /tmp/piper/lib*.dylib third_party/piper/macos-x64/ 2>/dev/null || true
-          rm -rf /tmp/piper
+          cp -av "$ONNX_PREFIX"/lib/libonnxruntime*.dylib "$DEST"/ 2>/dev/null || true
+          cp -av "$ESPEAK_PREFIX"/lib/libespeak*.dylib      "$DEST"/ 2>/dev/null || true
+          cp -av "$ESPEAK_PREFIX"/share/espeak-ng-data      "$DEST"/ 2>/dev/null || true
 
-          tar -xzf /tmp/piper_arm.tgz -C /tmp
-          cp -av /tmp/piper/piper third_party/piper/macos-arm64/
-          cp -av /tmp/piper/lib*.dylib third_party/piper/macos-arm64/ 2>/dev/null || true
-          rm -rf /tmp/piper
+          echo "=== Contents of $DEST ==="
+          ls -la "$DEST"
+          echo "=== otool -L $DEST/piper ==="
+          otool -L "$DEST/piper" || true
 
-          chmod +x third_party/piper/macos-*/piper
-
-          # Sanity: must say x86_64 for x64, arm64 for arm64
-          file third_party/piper/macos-x64/piper
-          file third_party/piper/macos-arm64/piper
-
-      - name: Ensure espeak-ng-data beside both mac Piper folders
+      - name: Ensure espeak-ng-data beside both mac Piper folders (noop if already bundled)
         run: |
           set -euo pipefail
-          if [ -d third_party/piper/linux-x64/espeak-ng-data ]; then
-            cp -a third_party/piper/linux-x64/espeak-ng-data third_party/piper/macos-x64/ || true
-            cp -a third_party/piper/linux-x64/espeak-ng-data third_party/piper/macos-arm64/ || true
-          fi
-          ls -la third_party/piper/macos-x64 || true
+          ls -la third_party/piper/macos-x64  || true
           ls -la third_party/piper/macos-arm64 || true
 
       - name: Piper smoke WAVs for all languages (artifact)
@@ -106,11 +96,11 @@ jobs:
               echo "::warning::Skipping $out (missing model/config/bin)"
             fi
           }
-          make_wav third_party/piper/models/fr_FR-siwis-medium.onnx third_party/piper/models/fr_FR-siwis-medium.onnx.json 0 "Bonjour, je m’appelle Nova." fr.wav
-          make_wav third_party/piper/models/es_ES-sharvard-medium.onnx third_party/piper/models/es_ES-sharvard-medium.onnx.json 1 "Hola, soy Nova." es.wav
-          make_wav third_party/piper/models/de_DE-kerstin-low.onnx third_party/piper/models/de_DE-kerstin-low.onnx.json 0 "Hallo, ich bin Nova." de.wav
-          make_wav third_party/piper/models/hi_IN-priyamvada-medium.onnx third_party/piper/models/hi_IN-priyamvada-medium.onnx.json 0 "नमस्ते, मैं नोवा हूँ।" hi.wav
-          make_wav third_party/piper/models/en_US-ryan-medium.onnx third_party/piper/models/en_US-ryan-medium.onnx.json 0 "Hello, this is Nova." en.wav
+          make_wav third_party/piper/models/fr_FR-siwis-medium.onnx       third_party/piper/models/fr_FR-siwis-medium.onnx.json       0 "Bonjour, je m’appelle Nova." fr.wav
+          make_wav third_party/piper/models/es_ES-sharvard-medium.onnx    third_party/piper/models/es_ES-sharvard-medium.onnx.json    1 "Hola, soy Nova." es.wav
+          make_wav third_party/piper/models/de_DE-kerstin-low.onnx        third_party/piper/models/de_DE-kerstin-low.onnx.json        0 "Hallo, ich bin Nova." de.wav
+          make_wav third_party/piper/models/hi_IN-priyamvada-medium.onnx  third_party/piper/models/hi_IN-priyamvada-medium.onnx.json  0 "नमस्ते, मैं नोवा हूँ।" hi.wav
+          make_wav third_party/piper/models/en_US-ryan-medium.onnx        third_party/piper/models/en_US-ryan-medium.onnx.json        0 "Hello, this is Nova." en.wav
           ls -lh voice-smoke || true
 
       - name: Upload voice smoke artifacts
@@ -254,6 +244,7 @@ jobs:
         with:
           name: Nova-mac-${{ github.ref_name }}-macos-13
           path: release_assets/macos-13
+
       - name: Download mac artifacts (Apple Silicon)
         uses: actions/download-artifact@v4
         with:
@@ -265,7 +256,6 @@ jobs:
           set -euo pipefail
           find release_assets -maxdepth 2 -type d -name "Nova.app" -execdir bash -lc 'zip -r Nova_${APPVER}_mac.app.zip Nova.app' \; || true
           find release_assets -maxdepth 2 -type d -name "Nova Tray.app" -execdir bash -lc 'zip -r Nova_Tray_${APPVER}_mac.app.zip "Nova Tray.app"' \; || true
-          # If artifacts were saved under a nested dist/, handle that too
           if [ -d release_assets/macos-13/dist ]; then (cd release_assets/macos-13/dist && zip -r ../Nova_${APPVER}_mac.app.zip "Nova.app"); fi || true
           if [ -d release_assets/macos-13/dist ]; then (cd release_assets/macos-13/dist && zip -r ../Nova_Tray_${APPVER}_mac.app.zip "Nova Tray.app"); fi || true
 
@@ -273,7 +263,6 @@ jobs:
         run: |
           set -euo pipefail
           cd release_assets
-          # Prefer Apple Silicon pkg/dmg if present; fallback to Intel
           pkg=$(ls -1 macos-14/Nova_*_mac.pkg macos-13/Nova_*_mac.pkg 2>/dev/null | head -n1); cp "$pkg" Nova_mac.pkg
           dmg=$(ls -1 macos-14/Nova_*_mac.dmg macos-13/Nova_*_mac.dmg 2>/dev/null | head -n1); cp "$dmg" Nova_mac.dmg
           shasum -a 256 */Nova_*_mac.* Nova_mac.* 2>/dev/null > SHA256SUMS.txt || true
