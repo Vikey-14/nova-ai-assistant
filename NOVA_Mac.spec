@@ -3,8 +3,8 @@ import os
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
-# Always absolute (fixes CI "relative_to" crash)
-BASE = Path(__file__).resolve().parent
+# Use CWD (PyInstaller spec context) — avoids __file__ issues on CI.
+BASE = Path(os.getcwd()).resolve()
 ICON_ICNS = str(BASE / "icons" / "nova.icns")
 
 # ---------------- Version (from env APPVER or VERSION.txt) ----------------
@@ -38,23 +38,28 @@ def add_tree(rel_path: str) -> None:
             dst = os.path.relpath(str(f_abs.parent), str(base_abs))
         datas.append((str(f_abs), dst))
 
-# project folders
+# Project folders
 for top in ["assets", "data", "handlers", "logs"]:
     add_tree(top)
 
-# single files at project root
-for fn in ["settings.json", "curiosity_data.json", "utils.py", "third_party/piper/models_manifest.json"]:
+# Root-level single files
+for fn in ["settings.json", "curiosity_data.json", "utils.py"]:
     p = BASE / fn
     if p.exists():
         datas.append((str(p), "."))
 
-# ---- Include Piper models & mac binaries (+ espeak data reused from linux-x64) ----
+# Piper manifest MUST be under third_party/piper/ (tts_driver.py loads it there)
+man = BASE / "third_party/piper/models_manifest.json"
+if man.exists():
+    datas.append((str(man), "third_party/piper"))
+
+# Piper models + macOS binaries + espeak data (reuse linux-x64 folder)
 add_tree("third_party/piper/models")
 add_tree("third_party/piper/macos-x64")
 add_tree("third_party/piper/macos-arm64")
 add_tree("third_party/piper/linux-x64/espeak-ng-data")
 
-# hidden imports & extra package data
+# Hidden imports & extra package data
 hidden = []
 hidden += collect_submodules("handlers")
 hidden += [
@@ -72,7 +77,7 @@ for m in ["matplotlib", "dateparser", "dateparser_data", "certifi"]:
 
 excludes = ["win32com", "comtypes", "pythoncom", "pywintypes", "wmi"]
 
-# ---- main app (user-visible name: Nova) ----
+# ---- main app (Nova) ----
 a1 = Analysis(["main.py"], pathex=[str(BASE)], datas=datas,
               hiddenimports=hidden, excludes=excludes)
 pyz1 = PYZ(a1.pure, a1.zipped_data)
@@ -95,7 +100,7 @@ app_main = BUNDLE(
     },
 )
 
-# ---- tray app (user-visible name: Nova Tray) ----
+# ---- tray app (Nova Tray) ----
 tray_entry = "tray_app.py" if (BASE / "tray_app.py").exists() else "tray_linux.py"
 a2 = Analysis([tray_entry], pathex=[str(BASE)], datas=datas,
               hiddenimports=hidden, excludes=excludes, noarchive=True)
