@@ -23,28 +23,25 @@ jobs:
         with:
           python-version: "3.11"
 
+      # Keep Homebrew light but include what Piper needs
       - name: Homebrew deps
         run: |
           set -euo pipefail
           brew update
-          # install what we actually need (leave cmake alone)
-          brew install jq ffmpeg portaudio ninja pkg-config
-          # show the preinstalled cmake we’ll use
+          # core tools + Piper deps
+          brew install jq ffmpeg portaudio ninja pkg-config espeak-ng onnxruntime
           cmake --version
 
-
+      # If the runner has a "pinned/local" cmake, replace it with the core one
       - name: Fix pinned cmake on runner
         run: |
           set -euxo pipefail
-          # If a “pinned/local” cmake exists, remove it to avoid tap conflicts
           if brew list --versions cmake >/dev/null 2>&1; then
             brew uninstall --ignore-dependencies cmake || true
             brew cleanup -s || true
           fi
-          # Install the cmake we want (from homebrew/core)
           brew install cmake
           cmake --version
-
 
       - name: Python deps
         run: |
@@ -53,7 +50,7 @@ jobs:
           pip install -r requirements.macos.txt pyinstaller edge-tts gTTS playsound
           pip cache purge || true
 
-      # ⬇️ REPLACED the old "Fetch Piper macOS binaries" step with this
+      # Build Piper from source for the current arch, and stage binaries/libs/data in repo tree
       - name: Build Piper from source (per-arch)
         run: |
           set -euo pipefail
@@ -98,26 +95,53 @@ jobs:
           ls -la third_party/piper/macos-x64  || true
           ls -la third_party/piper/macos-arm64 || true
 
+      # ---------- SMOKE: synthesize a WAV per language ----------
       - name: Piper smoke WAVs for all languages (artifact)
         run: |
           set -euo pipefail
+          set -x
+
           ARCH="$(uname -m)"
-          if [ "$ARCH" = "arm64" ]; then BIN="third_party/piper/macos-arm64/piper"; else BIN="third_party/piper/macos-x64/piper"; fi
+          if [ "$ARCH" = "arm64" ]; then
+            BIN="third_party/piper/macos-arm64/piper"
+            BINDIR="third_party/piper/macos-arm64"
+          else
+            BIN="third_party/piper/macos-x64/piper"
+            BINDIR="third_party/piper/macos-x64"
+          fi
+
+          # Ensure piper sees its libraries and espeak data
+          export ESPEAK_DATA="${BINDIR}/espeak-ng-data"
+          # Fallback to Homebrew data if we didn't bundle the folder
+          if [ ! -d "$ESPEAK_DATA" ]; then
+            export ESPEAK_DATA="$(brew --prefix)/share/espeak-ng-data"
+          fi
+          export DYLD_LIBRARY_PATH="${BINDIR}:${DYLD_LIBRARY_PATH:-}"
+
+          file "$BIN" || true
+          ls -lah "$BINDIR" || true
+          ls -lah third_party/piper/models || true
+
           mkdir -p voice-smoke
+
           make_wav () {
             local m="$1" c="$2" s="$3" txt="$4" out="$5"
             if [ -x "$BIN" ] && [ -f "$m" ] && [ -f "$c" ]; then
               "$BIN" -m "$m" -c "$c" -s "$s" -f 22050 -t "$txt" -o "voice-smoke/$out"
+              test -s "voice-smoke/$out" || { echo "::error::Piper produced no audio for $out"; exit 1; }
             else
-              echo "::warning::Skipping $out (missing model/config/bin)"
+              echo "::error::Missing model/config/bin for $out"
+              exit 1
             fi
           }
+
           make_wav third_party/piper/models/fr_FR-siwis-medium.onnx       third_party/piper/models/fr_FR-siwis-medium.onnx.json       0 "Bonjour, je m’appelle Nova." fr.wav
           make_wav third_party/piper/models/es_ES-sharvard-medium.onnx    third_party/piper/models/es_ES-sharvard-medium.onnx.json    1 "Hola, soy Nova." es.wav
           make_wav third_party/piper/models/de_DE-kerstin-low.onnx        third_party/piper/models/de_DE-kerstin-low.onnx.json        0 "Hallo, ich bin Nova." de.wav
           make_wav third_party/piper/models/hi_IN-priyamvada-medium.onnx  third_party/piper/models/hi_IN-priyamvada-medium.onnx.json  0 "नमस्ते, मैं नोवा हूँ।" hi.wav
           make_wav third_party/piper/models/en_US-ryan-medium.onnx        third_party/piper/models/en_US-ryan-medium.onnx.json        0 "Hello, this is Nova." en.wav
-          ls -lh voice-smoke || true
+
+          ls -lh voice-smoke
 
       - name: Upload voice smoke artifacts
         uses: actions/upload-artifact@v4
@@ -187,6 +211,7 @@ jobs:
           TMPDIR: ${{ env.TMPDIR }}
         run: |
           set -euo pipefail
+          APPVER="${APPVER:-0.0.0-ci}"
           mkdir -p "dist_mac/Nova-${APPVER}"
           cp -R "dist/Nova.app"      "dist_mac/Nova-${APPVER}/"
           cp -R "dist/Nova Tray.app" "dist_mac/Nova-${APPVER}/"
@@ -197,6 +222,7 @@ jobs:
           TMPDIR: ${{ env.TMPDIR }}
         run: |
           set -euo pipefail
+          APPVER="${APPVER:-0.0.0-ci}"
           chmod +x mac/pkg/scripts/postinstall
           pkgbuild --identifier com.novaai.Nova \
                    --version "$APPVER" \
@@ -209,7 +235,7 @@ jobs:
       - name: Install PKG (fail only if installer errors)
         run: |
           set -euo pipefail
-          if ! sudo env CI=1 GITHUB_ACTIONS=1 installer -pkg "Nova_${APPVER}_mac.pkg" -target / -verboseR; then
+          if ! sudo env CI=1 GITHUB_ACTIONS=1 installer -pkg "Nova_${APPVER:-0.0.0-ci}_mac.pkg" -target / -verboseR; then
             echo "---- tail /var/log/install.log ----"
             sudo tail -n 200 /var/log/install.log || true
             exit 1
