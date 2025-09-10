@@ -23,7 +23,6 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Keep Homebrew light but include what Piper needs
       - name: Homebrew deps
         run: |
           set -euo pipefail
@@ -32,7 +31,6 @@ jobs:
           brew install jq ffmpeg portaudio ninja pkg-config espeak-ng onnxruntime
           cmake --version || true
 
-      # If the runner has a "pinned/local" cmake, replace it with the core one
       - name: Fix pinned cmake on runner
         run: |
           set -euxo pipefail
@@ -50,7 +48,6 @@ jobs:
           pip install -r requirements.macos.txt pyinstaller edge-tts gTTS playsound
           pip cache purge || true
 
-      # Build Piper from source for the current arch, and stage binaries/libs/data in repo tree
       - name: Build Piper from source (per-arch)
         run: |
           set -euo pipefail
@@ -76,15 +73,26 @@ jobs:
           cp -av "$BIN" "$DEST/piper"
           chmod +x "$DEST/piper"
 
-          # --- CRITICAL: copy Piper-built dylibs (phonemize + espeak-ng) ---
-          # Use the libs produced by the build, not Homebrew's, to avoid symbol mismatch.
+          # Copy Piper-built dylibs (phonemize + espeak-ng) – MUST match the build
           find /tmp/piper_build -type f \( -name 'libpiper*.dylib' -o -name 'libespeak*.dylib' \) -exec cp -av {} "$DEST"/ \; || true
 
-          # ONNX runtime comes from Homebrew
+          # Create unversioned symlinks so dlopen by basename also works
+          set +e
+          for d in "$DEST"/libpiper_phonemize*.dylib; do
+            [ -f "$d" ] || continue
+            ln -sf "$(basename "$d")" "$DEST/libpiper_phonemize.dylib"
+          done
+          for d in "$DEST"/libespeak-ng*.dylib; do
+            [ -f "$d" ] || continue
+            ln -sf "$(basename "$d")" "$DEST/libespeak-ng.dylib"
+          done
+          set -e
+
+          # ONNX runtime from Homebrew
           ONNX_PREFIX="$(brew --prefix onnxruntime)"
           cp -av "$ONNX_PREFIX"/lib/libonnxruntime*.dylib "$DEST"/ 2>/dev/null || true
 
-          # espeak-ng-data: prefer from build tree; fall back to Homebrew share/
+          # espeak-ng-data: prefer from build tree; fallback to Homebrew
           if ! find /tmp/piper_build -type d -name espeak-ng-data -exec bash -lc 'cp -a "{}" "'"$DEST"'/espeak-ng-data"' \; | grep -q . ; then
             ESPEAK_PREFIX="$(brew --prefix espeak-ng)"
             cp -av "$ESPEAK_PREFIX"/share/espeak-ng-data "$DEST"/ 2>/dev/null || true
@@ -103,7 +111,6 @@ jobs:
           ls -la third_party/piper/macos-x64  || true
           ls -la third_party/piper/macos-arm64 || true
 
-      # ---------- SMOKE: synthesize a WAV per language ----------
       - name: Piper smoke WAVs for all languages (artifact)
         run: |
           set -euo pipefail
@@ -118,12 +125,15 @@ jobs:
             BINDIR="third_party/piper/macos-x64"
           fi
 
-          # Ensure piper sees its libraries and espeak data
+          # Point dynamic loader + phonemizer + espeak data at our bundle
+          export DYLD_LIBRARY_PATH="${BINDIR}:${DYLD_LIBRARY_PATH:-}"
+          if [ -f "${BINDIR}/libpiper_phonemize.dylib" ]; then
+            export PIPER_PHONEMIZE_LIBRARY="${BINDIR}/libpiper_phonemize.dylib"
+          fi
           export ESPEAK_DATA="${BINDIR}/espeak-ng-data"
           if [ ! -d "$ESPEAK_DATA" ]; then
             export ESPEAK_DATA="$(brew --prefix)/share/espeak-ng-data"
           fi
-          export DYLD_LIBRARY_PATH="${BINDIR}:${DYLD_LIBRARY_PATH:-}"
 
           file "$BIN" || true
           ls -lah "$BINDIR" || true
@@ -134,7 +144,12 @@ jobs:
           make_wav () {
             local m="$1" c="$2" s="$3" txt="$4" out="$5"
             if [ -x "$BIN" ] && [ -f "$m" ] && [ -f "$c" ]; then
-              "$BIN" -m "$m" -c "$c" -s "$s" -f 22050 -t "$txt" -o "voice-smoke/$out"
+              # NOTE: do NOT pass -f 22050; -f is a scaling factor, not sample rate.
+              "$BIN" -m "$m" -c "$c" -s "$s" -t "$txt" -o "voice-smoke/$out"
+              if [ ! -s "voice-smoke/$out" ]; then
+                echo "First attempt produced no audio; retry via stdin..."
+                echo "$txt" | "$BIN" -m "$m" -c "$c" -s "$s" -o "voice-smoke/$out"
+              fi
               test -s "voice-smoke/$out" || { echo "::error::Piper produced no audio for $out"; exit 1; }
             else
               echo "::error::Missing model/config/bin for $out"
