@@ -28,9 +28,9 @@ jobs:
         run: |
           set -euo pipefail
           brew update
-          # core tools + Piper deps
+          # core tools + Piper deps (do NOT install cmake here)
           brew install jq ffmpeg portaudio ninja pkg-config espeak-ng onnxruntime
-          cmake --version
+          cmake --version || true
 
       # If the runner has a "pinned/local" cmake, replace it with the core one
       - name: Fix pinned cmake on runner
@@ -76,18 +76,26 @@ jobs:
           cp -av "$BIN" "$DEST/piper"
           chmod +x "$DEST/piper"
 
-          # Bundle runtime libs & data next to the binary
-          ONNX_PREFIX="$(brew --prefix onnxruntime)"
-          ESPEAK_PREFIX="$(brew --prefix espeak-ng)"
+          # --- CRITICAL: copy Piper-built dylibs (phonemize + espeak-ng) ---
+          # Use the libs produced by the build, not Homebrew's, to avoid symbol mismatch.
+          find /tmp/piper_build -type f \( -name 'libpiper*.dylib' -o -name 'libespeak*.dylib' \) -exec cp -av {} "$DEST"/ \; || true
 
+          # ONNX runtime comes from Homebrew
+          ONNX_PREFIX="$(brew --prefix onnxruntime)"
           cp -av "$ONNX_PREFIX"/lib/libonnxruntime*.dylib "$DEST"/ 2>/dev/null || true
-          cp -av "$ESPEAK_PREFIX"/lib/libespeak*.dylib      "$DEST"/ 2>/dev/null || true
-          cp -av "$ESPEAK_PREFIX"/share/espeak-ng-data      "$DEST"/ 2>/dev/null || true
+
+          # espeak-ng-data: prefer from build tree; fall back to Homebrew share/
+          if ! find /tmp/piper_build -type d -name espeak-ng-data -exec bash -lc 'cp -a "{}" "'"$DEST"'/espeak-ng-data"' \; | grep -q . ; then
+            ESPEAK_PREFIX="$(brew --prefix espeak-ng)"
+            cp -av "$ESPEAK_PREFIX"/share/espeak-ng-data "$DEST"/ 2>/dev/null || true
+          fi
 
           echo "=== Contents of $DEST ==="
           ls -la "$DEST"
           echo "=== otool -L $DEST/piper ==="
           otool -L "$DEST/piper" || true
+          echo "=== otool -L (phonemize/espeak libs) ==="
+          for d in "$DEST"/libpiper*.dylib "$DEST"/libespeak*.dylib; do [ -f "$d" ] && otool -L "$d"; done || true
 
       - name: Ensure espeak-ng-data beside both mac Piper folders (noop if already bundled)
         run: |
@@ -112,7 +120,6 @@ jobs:
 
           # Ensure piper sees its libraries and espeak data
           export ESPEAK_DATA="${BINDIR}/espeak-ng-data"
-          # Fallback to Homebrew data if we didn't bundle the folder
           if [ ! -d "$ESPEAK_DATA" ]; then
             export ESPEAK_DATA="$(brew --prefix)/share/espeak-ng-data"
           fi
