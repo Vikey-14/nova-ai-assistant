@@ -127,30 +127,42 @@ jobs:
 
           # Point dynamic loader + phonemizer + espeak data at our bundle
           export DYLD_LIBRARY_PATH="${BINDIR}:${DYLD_LIBRARY_PATH:-}"
-          if [ -f "${BINDIR}/libpiper_phonemize.dylib" ]; then
-            export PIPER_PHONEMIZE_LIBRARY="${BINDIR}/libpiper_phonemize.dylib"
-          fi
+          [ -f "${BINDIR}/libpiper_phonemize.dylib" ] && export PIPER_PHONEMIZE_LIBRARY="${BINDIR}/libpiper_phonemize.dylib"
           export ESPEAK_DATA="${BINDIR}/espeak-ng-data"
-          if [ ! -d "$ESPEAK_DATA" ]; then
-            export ESPEAK_DATA="$(brew --prefix)/share/espeak-ng-data"
-          fi
+          [ ! -d "$ESPEAK_DATA" ] && export ESPEAK_DATA="$(brew --prefix)/share/espeak-ng-data"
 
           file "$BIN" || true
           ls -lah "$BINDIR" || true
           ls -lah third_party/piper/models || true
 
           mkdir -p voice-smoke
+          pushd voice-smoke >/dev/null
 
           make_wav () {
-            local m="$1" c="$2" s="$3" txt="$4" out="$5"
-            if [ -x "$BIN" ] && [ -f "$m" ] && [ -f "$c" ]; then
-              # NOTE: do NOT pass -f 22050; -f is a scaling factor, not sample rate.
-              "$BIN" -m "$m" -c "$c" -s "$s" -t "$txt" -o "voice-smoke/$out"
-              if [ ! -s "voice-smoke/$out" ]; then
-                echo "First attempt produced no audio; retry via stdin..."
-                echo "$txt" | "$BIN" -m "$m" -c "$c" -s "$s" -o "voice-smoke/$out"
+            local m_rel="$1" c_rel="$2" s="$3" txt="$4" out="$5"
+
+            # Absolute paths for model/config/bin (since we cd into voice-smoke)
+            local BIN_ABS="$GITHUB_WORKSPACE/$BIN"
+            local M_ABS="$GITHUB_WORKSPACE/$m_rel"
+            local C_ABS="$GITHUB_WORKSPACE/$c_rel"
+
+            if [ -x "$BIN_ABS" ] && [ -f "$M_ABS" ] && [ -f "$C_ABS" ]; then
+              # Prefer explicit output filename (some Piper builds treat -o as directory)
+              echo "$txt" | "$BIN_ABS" -m "$M_ABS" -c "$C_ABS" -s "$s" --output_file "$out" || true
+
+              # If Piper still wrote a timestamp file, grab newest and rename
+              if [ ! -s "$out" ]; then
+                newest="$(ls -1t *.wav 2>/dev/null | head -n1 || true)"
+                if [ -n "${newest:-}" ] && [ -f "$newest" ]; then
+                  mv -v "$newest" "$out"
+                fi
               fi
-              test -s "voice-smoke/$out" || { echo "::error::Piper produced no audio for $out"; exit 1; }
+
+              # Final guard
+              if [ ! -s "$out" ]; then
+                echo "::error::Piper produced no audio for $out"
+                exit 1
+              fi
             else
               echo "::error::Missing model/config/bin for $out"
               exit 1
@@ -163,7 +175,8 @@ jobs:
           make_wav third_party/piper/models/hi_IN-priyamvada-medium.onnx  third_party/piper/models/hi_IN-priyamvada-medium.onnx.json  0 "नमस्ते, मैं नोवा हूँ।" hi.wav
           make_wav third_party/piper/models/en_US-ryan-medium.onnx        third_party/piper/models/en_US-ryan-medium.onnx.json        0 "Hello, this is Nova." en.wav
 
-          ls -lh voice-smoke
+          ls -lh .
+          popd >/dev/null
 
       - name: Upload voice smoke artifacts
         uses: actions/upload-artifact@v4
@@ -296,7 +309,7 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags_v') # keep release gated to tags
     permissions:
       contents: write
     steps:
