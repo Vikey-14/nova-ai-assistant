@@ -111,6 +111,32 @@ jobs:
           ls -la third_party/piper/macos-x64  || true
           ls -la third_party/piper/macos-arm64 || true
 
+      # NEW: fetch the 5 Piper models if they aren't committed
+      - name: Download Piper models (if missing)
+        run: |
+          set -euo pipefail
+          mkdir -p third_party/piper/models
+          base="https://huggingface.co/rhasspy/piper-voices/resolve/main"
+          fetch() { url="$1"; out="$2"; [ -s "$out" ] || curl -L --retry 3 -o "$out" "$url"; }
+
+          # EN (Ryan, medium)
+          fetch "$base/en/en_US/ryan/medium/en_US-ryan-medium.onnx"       third_party/piper/models/en_US-ryan-medium.onnx
+          fetch "$base/en/en_US/ryan/medium/en_US-ryan-medium.onnx.json" third_party/piper/models/en_US-ryan-medium.onnx.json
+          # HI (Priyamvada, medium)
+          fetch "$base/hi/hi_IN/priyamvada/medium/hi_IN-priyamvada-medium.onnx"       third_party/piper/models/hi_IN-priyamvada-medium.onnx
+          fetch "$base/hi/hi_IN/priyamvada/medium/hi_IN-priyamvada-medium.onnx.json" third_party/piper/models/hi_IN-priyamvada-medium.onnx.json
+          # FR (SIWIS, medium)
+          fetch "$base/fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx"       third_party/piper/models/fr_FR-siwis-medium.onnx
+          fetch "$base/fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx.json" third_party/piper/models/fr_FR-siwis-medium.onnx.json
+          # ES (Sharvard, medium) — female with speaker=1
+          fetch "$base/es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx"       third_party/piper/models/es_ES-sharvard-medium.onnx
+          fetch "$base/es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx.json" third_party/piper/models/es_ES-sharvard-medium.onnx.json
+          # DE (Kerstin, low)
+          fetch "$base/de/de_DE/kerstin/low/de_DE-kerstin-low.onnx"       third_party/piper/models/de_DE-kerstin-low.onnx
+          fetch "$base/de/de_DE/kerstin/low/de_DE-kerstin-low.onnx.json" third_party/piper/models/de_DE-kerstin-low.onnx.json
+
+          ls -lh third_party/piper/models
+
       - name: Piper smoke WAVs for all languages (artifact)
         run: |
           set -euo pipefail
@@ -140,25 +166,17 @@ jobs:
 
           make_wav () {
             local m_rel="$1" c_rel="$2" s="$3" txt="$4" out="$5"
-
-            # Absolute paths for model/config/bin (since we cd into voice-smoke)
             local BIN_ABS="$GITHUB_WORKSPACE/$BIN"
             local M_ABS="$GITHUB_WORKSPACE/$m_rel"
             local C_ABS="$GITHUB_WORKSPACE/$c_rel"
-
             if [ -x "$BIN_ABS" ] && [ -f "$M_ABS" ] && [ -f "$C_ABS" ]; then
-              # Prefer explicit output filename (some Piper builds treat -o as directory)
-              echo "$txt" | "$BIN_ABS" -m "$M_ABS" -c "$C_ABS" -s "$s" --output_file "$out" || true
-
-              # If Piper still wrote a timestamp file, grab newest and rename
+              echo "$txt" | "$BIN_ABS" -m "$M_ABS" -c "$C_ABS" -s "$s" -f "$out" || true
               if [ ! -s "$out" ]; then
                 newest="$(ls -1t *.wav 2>/dev/null | head -n1 || true)"
                 if [ -n "${newest:-}" ] && [ -f "$newest" ]; then
                   mv -v "$newest" "$out"
                 fi
               fi
-
-              # Final guard
               if [ ! -s "$out" ]; then
                 echo "::error::Piper produced no audio for $out"
                 exit 1
@@ -309,7 +327,8 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags_v') # keep release gated to tags
+    # FIXED: correct tag gate
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
     steps:
