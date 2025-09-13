@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import os
+import io
+import tempfile
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -25,16 +27,33 @@ _LOCK = threading.Lock()
 
 
 # ------------------------------------------------------------------------------
-# Low-level JSON helpers (safe + atomic)
+# Low-level JSON helpers (safe + atomic with fsync)
 # ------------------------------------------------------------------------------
 def _atomic_dump_json(path: Path, obj: Any) -> None:
     """
-    Write JSON atomically to avoid corruption (TMP -> replace).
+    Write JSON atomically to avoid corruption (TMP -> flush -> fsync -> replace).
+    Guaranteed to be durable on disk when this function returns.
     """
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        json.dump(obj, f, indent=2, ensure_ascii=False)
-    os.replace(tmp, path)  # atomic on Windows & POSIX
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Create a temp file in the same directory so os.replace is atomic
+    fd, tmp_path = tempfile.mkstemp(prefix=f".{path.name}.", dir=str(path.parent))
+    try:
+        # Write JSON and force it to disk
+        with io.open(fd, "w", encoding="utf-8") as f:
+            json.dump(obj, f, indent=2, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+
+        # Atomic swap
+        os.replace(tmp_path, path)
+    finally:
+        # If anything went wrong before replace, clean up the temp file
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
 
 
 def _load_json_or_default(path: Path, default: Any) -> Any:
@@ -72,11 +91,26 @@ def init_memory() -> None:
 
 
 def save_to_memory(key: str, value: Any) -> None:
+    """
+    Synchronous, atomic save. When this returns, the data is durably on disk.
+    """
     _ensure_files()
     with _LOCK:
         data: Dict[str, Any] = _load_json_or_default(MEMORY_PATH, {})
         data[key] = value
         _atomic_dump_json(MEMORY_PATH, data)
+
+    # Optional: mirror specific keys (like language) into settings.json as well
+    # so other subsystems that read settings stay in sync.
+    if key == "language":
+        try:
+            import utils  # local import to avoid circulars at module import time
+            s = utils.load_settings()
+            s["language"] = str(value).lower()
+            utils.save_settings(s)  # utils should also write synchronously/atomically
+        except Exception as e:
+            logger.warning(f"[memory_handler] Failed to mirror 'language' into settings: {e}")
+
     logger.info(f"💾 Saved to memory: {key} = {value}")
 
 

@@ -1,19 +1,37 @@
+# macOS requirements.txt
+
+# --- macOS bridges for tray (required by pystray) ---
 pyobjc-core
 pyobjc-framework-Cocoa
 pyobjc-framework-Quartz
+
+# --- Tray & UI ---
 pystray
 Pillow
+
+# --- Speech / Audio ---
 pyttsx3
 SpeechRecognition
 pyaudio
-python-dateutil
-dateparser
+gTTS
+playsound
+edge-tts>=6.1.0
+aiohttp>=3.9   # (edge-tts depends on this; you can omit if you prefer)
+
+# --- NLP / Web / Utilities ---
 langdetect
-platformdirs
-psutil
-requests
-beautifulsoup4
+requests>=2.31.0
+python-dotenv
 wikipedia
-matplotlib
-numpy
+beautifulsoup4
+dateparser
+python-dateutil
+
+# --- Math / Plotting ---
+numpy>=2.0
 sympy
+matplotlib
+
+# --- System utils ---
+psutil
+platformdirs

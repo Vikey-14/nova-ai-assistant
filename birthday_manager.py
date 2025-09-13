@@ -71,7 +71,7 @@ def _center_and_show(win: tk.Toplevel):
         pass
 
 # -------------------------------
-# Gating: run *after* Nova window is visible and greeting line is done
+# Gating: run *after*  window is visible and greeting line is done
 # -------------------------------
 def _after_greeting(run_fn, *, extra_delay_ms: int = 1000, poll_ms: int = 150, timeout_ms: int = 20000):
     """

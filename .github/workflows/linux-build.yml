@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: Linux build (.deb)
 
 on:
@@ -11,38 +12,115 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Speed up pip installs on Linux runners
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: System deps
+      - name: System deps (build + runtime)
         run: |
+          set -euo pipefail
           sudo apt-get -qq update
           sudo apt-get -yqq install \
-            build-essential python3-dev pkg-config \
+            build-essential python3-dev pkg-config git \
+            cmake ninja-build \
+            libsndfile1 libsndfile1-dev \
+            espeak-ng espeak-ng-data libespeak-ng1 libespeak-ng-dev \
             portaudio19-dev libportaudio2 libportaudiocpp0 \
             libasound2-dev libjack-jackd2-dev \
             ffmpeg libpulse0 desktop-file-utils
           # Ubuntu 24.04 renames libasound2 -> libasound2t64
           sudo apt-get -yqq install libasound2 || sudo apt-get -yqq install libasound2t64
+          # Tk for PyInstaller analysis (NOVA_Linux.spec pulls in tkinter)
+          sudo apt-get -yqq install python3.11-tk || sudo apt-get -yqq install python3-tk
 
       - name: Python deps
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip wheel
           pip install -r requirements.linux.txt pyinstaller
 
+      # ---------- Build Piper from source and stage into repo tree ----------
+      - name: Build Piper (Linux x64) and stage
+        run: |
+          set -euo pipefail
+          # Build
+          rm -rf /tmp/piper_src /tmp/piper_build
+          git clone --depth=1 https://github.com/rhasspy/piper.git /tmp/piper_src
+          cmake -S /tmp/piper_src -B /tmp/piper_build -DCMAKE_BUILD_TYPE=Release -G Ninja
+          cmake --build /tmp/piper_build --config Release -j
+
+          # Stage into the expected folder so NOVA_Linux.spec can bundle it
+          DEST="third_party/piper/linux-x64"
+          mkdir -p "$DEST"
+          cp -av /tmp/piper_build/piper "$DEST"/
+          chmod +x "$DEST/piper"
+
+          # Copy Piper-built shared libs (phonemize/espeak) if present
+          find /tmp/piper_build -type f \( -name 'libpiper*.so*' -o -name 'libespeak*.so*' \) -exec cp -av {} "$DEST"/ \; || true
+
+          # Ensure espeak-ng-data next to the binary (prefer system copy if build tree lacks it)
+          if [ -d /tmp/piper_build/espeak-ng-data ]; then
+            cp -a /tmp/piper_build/espeak-ng-data "$DEST"/
+          elif [ -d /usr/share/espeak-ng-data ]; then
+            cp -a /usr/share/espeak-ng-data "$DEST"/
+          fi
+
+          echo "==== Staged Piper contents ===="
+          ls -la "$DEST" || true
+
+      # (Optional) Smoke test Piper if a model exists in repo (skips otherwise)
+      - name: Piper smoke test (optional)
+        run: |
+          set -euo pipefail
+          BIN="third_party/piper/linux-x64/piper"
+          M="third_party/piper/models/en_US-ryan-medium.onnx"
+          C="third_party/piper/models/en_US-ryan-medium.onnx.json"
+          if [ -x "$BIN" ] && [ -f "$M" ] && [ -f "$C" ]; then
+            echo "Hello from Nova" | "$BIN" -m "$M" -c "$C" -s 0 -f /tmp/smoke.wav
+            test -s /tmp/smoke.wav
+            file /tmp/smoke.wav || true
+            echo "Piper smoke OK"
+          else
+            echo "Models not in repo; skipping smoke."
+          fi
+
+      # ---------- Blocklist file from secret ----------
+      - name: Create hashed.txt from secret
+        env:
+          HASHED_NAME_BLOCKLIST: ${{ secrets.HASHED_NAME_BLOCKLIST }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HASHED_NAME_BLOCKLIST:-}" ]; then
+            echo "::error::HASHED_NAME_BLOCKLIST secret not set or empty"
+            exit 1
+          fi
+          printf '%s\n' "$HASHED_NAME_BLOCKLIST" > hashed.txt
+          echo "hashed.txt lines: $(wc -l < hashed.txt)"
+
       - name: Build with PyInstaller (Linux)
         run: |
+          set -euo pipefail
           pyinstaller --distpath dist_linux NOVA_Linux.spec
           ls -lah dist_linux || true
 
       - name: Clean old .deb files (keep workspace tidy)
-        run: rm -f dist_linux/nova_ai_assistant_*_amd64.deb || true
+        run: |
+          set -euo pipefail
+          rm -f dist_linux/nova_ai_assistant_*_amd64.deb || true
 
       - name: Build .deb
         env:
           APPVER: ${{ github.ref_name }}
         run: |
+          set -euo pipefail
           APPVER="${APPVER#v}"
           [ -z "$APPVER" ] && APPVER="1.0.0"
           bash pack_deb.sh "${APPVER}-1"
@@ -50,6 +128,7 @@ jobs:
 
       - name: Install & verify (smoke test)
         run: |
+          set -euo pipefail
           sudo apt-get -yqq install ./dist_linux/*.deb
           test -f /usr/share/applications/nova.desktop
           test -f /etc/xdg/autostart/nova-tray.desktop
@@ -58,7 +137,7 @@ jobs:
       - name: Upload artifact (.deb)
         uses: actions/upload-artifact@v4
         with:
-          name: NOVA-linux-${{ github.ref_name }}
+          name: Nova-linux-${{ github.ref_name }}
           path: dist_linux/*.deb
           if-no-files-found: error
           compression-level: 0
@@ -73,7 +152,7 @@ jobs:
       - name: Download Linux artifact
         uses: actions/download-artifact@v4
         with:
-          pattern: NOVA-linux-*
+          pattern: Nova-linux-*
           merge-multiple: true
           path: release_assets
 
@@ -100,7 +179,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: NOVA ${{ github.ref_name }}
+          name: Nova ${{ github.ref_name }}
           draft: false
           prerelease: false
           files: |

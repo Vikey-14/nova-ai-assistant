@@ -1,111 +1,162 @@
-# === Nova AI Assistant .gitignore ===
+# === Nova / Nova Tray .gitignore ===
 
-# --- Python bytecode & caches ---
+# 🔒 Secrets / environment
+.env
+.env.*        # e.g. .env.local, .env.dev
+!.env.example
+*.key
+*.pem
+.python-version
+
+# 🐍 Python caches / packaging
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+*.egg-info/
+pip-wheel-metadata/
+.pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.pytest_cache/
-.ipynb_checkpoints/
-.mplcache/
+.hypothesis/
+.pytype/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
 
-# --- Virtual environments ---
+# 📦 Virtual envs
 .venv*/
 .venv/
 venv/
 env/
 ENV/
+.envs/
+.direnv/
 
-# --- Build / packaging outputs ---
+# 🧱 Build & release outputs
 build/
 dist/
-*.egg-info/
-pip-wheel-metadata/
+dist_linux/
+dist_mac/
+release_assets/
+_deb_stage/
+tmp/
 nova_setup/
 share_clean/
 share/
 audit/
+Output/
+tools/            # appimagetool or other helper binaries
 
-# Keep the PyInstaller spec for reproducible builds
+# 🔧 PyInstaller specs (ignore all, keep the ones we track)
 *.spec
+!Nova.spec
 !NOVA.spec
+!Nova_Mac.spec
+!NOVA_Mac.spec
+!Nova_Linux.spec
+!NOVA_Linux.spec
 
-# --- Editors / IDEs ---
-.vscode/
-.idea/
-*.iml
+# 📦 Generated installers / archives (published on Releases, not in git)
+NovaSetup.exe
+*_windows_portable.zip
+Nova_*_mac.dmg
+Nova_*_mac.pkg
+nova_ai_assistant_*_amd64.deb
+nova_ai_assistant_src_*.zip
+*.AppImage
+*.appimage
 
-# --- OS cruft ---
-.DS_Store
-Thumbs.db
-ehthumbs.db
-desktop.ini
-
-# --- Secrets & local config ---
-.env
-.env.*
-*.key
-*.pem
-.python-version
-
-# --- Tests & coverage artifacts ---
-htmlcov/
-.coverage
-.coverage.*
-coverage.xml
-*.cover
-.nova_logs/
-
-# --- App/runtime logs & caches ---
-*.log
-nova_logs.txt
-interaction_log.txt
-interaction_log.csv
-logs/
-
-# --- Runtime data/state (ignored; keep placeholder only) ---
-data/**
-!data/README.md
-
-# --- Project-specific generated files (legacy roots) ---
-notes/
-reminders/
-nova_memory.json
-nova_notes.json
-
-# --- App data / binaries / temp ---
-*.bin
-*.blb
-*.db
-*.db-journal
-AppData/
-
-# --- Assets: keep small curated files, ignore bulk dumps ---
-nova_face_assets/
-# To keep specific assets, unignore them explicitly:
-# !nova_face_assets/README.md
-# !nova_face_assets/*.png
-
-# --- Large data you don't want in source zips/repos ---
-datasets/
-models/
-
-# --- Release/transfer artifacts (optional) ---
+# (Optional bulk archives)
 *.7z
 *.zip
 nova_clean.zip
 nova_parts.7z.*
 tiny.zip
 
-# --- Keep essential small config/assets needed at runtime ---
+# 🧰 Node / tooling caches
+node_modules/
+.mplcache/
+.cache/
+
+# 🧰 IDE/Editor
+.vscode/
+.idea/
+*.iml
+.history/
+*.code-workspace
+
+# 🖼 OS junk
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+__MACOSX/
+
+# 🔊 App logs & caches
+*.log
+nova_logs.txt
+interaction_log.txt
+interaction_log.csv
+logs/
+
+# 🧪 Tests (project-specific)
+.nova_logs/
+
+# 🗃 Runtime data/state
+# (Do NOT ignore /data — repo contains real runtime data you keep)
+
+# 📓 Project-specific generated files (legacy)
+notes/
+reminders/
+nova_memory.json
+nova_notes.json
+
+# 🗂 App data / binaries / temp
+*.bin
+*.blb
+*.db
+*.db-journal
+*.out
+AppData/
+
+# 🖼 Bulk asset dumps (keep curated assets explicitly)
+nova_face_assets/
+# Example unignores if needed:
+# !nova_face_assets/README.md
+# !nova_face_assets/*.png
+
+# ✅ Keep essential small config/assets
 !poem_bank.json
 
-# Keep mac & linux specs
-!NOVA_Mac.spec
-!NOVA_Linux.spec
+# ✨ Extras
+*.tmp
+*.bak
+*.orig
+*.swp
+hashed.txtthird_party/piper/linux-x64/
+third_party/piper/linux-arm64/
 
-# Ignore platform dist folders
+# --- Nova: platform bundles & build outputs (do not commit) ---
+third_party/piper/
+ffmpeg/
+*.wav
+out_*.wav
+test_gtts.mp3
+
+# Build artifacts
+/dist/
 /dist_linux/
-/dist_mac/
+/dist_macos/
+/dist_win/
+/build/
+/build_linux/
+*.deb
+*.AppImage
+*.dmg
+*.pkg
+
+# Local version text files
+VERSION.txt
+version_info_*.txt

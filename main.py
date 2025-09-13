@@ -32,6 +32,49 @@ def _pin_local_utils() -> bool:
 
 _pin_local_utils()
 
+# --- .env support (project-wide) ---
+try:
+    from dotenv import load_dotenv
+    load_dotenv(override=True)  # load .env so every module sees env vars
+except Exception:
+    pass
+
+# --- Hashed name-blocklist bootstrap (reads hashed.txt and sets env var) ---
+def _bootstrap_hashed_blocklist():
+    import os, sys
+    from pathlib import Path
+    if os.getenv("NOVA_HASHED_NAME_BLOCKLIST"):  # ← don't override if already provided
+        return
+    try:
+        # Prefer utils.resource_path when frozen; fall back to side-by-side file
+        try:
+            from utils import resource_path
+            candidates = [Path(resource_path("hashed.txt"))]
+        except Exception:
+            candidates = []
+
+        # Dev: alongside main.py
+        candidates.append(Path(__file__).with_name("hashed.txt"))
+        # Frozen (PyInstaller): inside the bundle dir
+        candidates.append(Path(getattr(sys, "_MEIPASS", Path(__file__).parent)) / "hashed.txt")
+
+        for p in candidates:
+            try:
+                if p and p.exists():
+                    lines = p.read_text(encoding="utf-8").splitlines()
+                    hashes = [ln.strip().lower() for ln in lines if ln.strip()]
+                    if hashes:
+                        os.environ["NOVA_HASHED_NAME_BLOCKLIST"] = ",".join(hashes)
+                        break
+            except Exception:
+                continue
+    except Exception:
+        # Never block startup on any error here
+        pass
+
+_bootstrap_hashed_blocklist()
+
+
 # 📂 main.py
 
 from utils import (
@@ -48,6 +91,19 @@ from utils import (
     set_language_flow,
     LANGUAGE_FLOW_ACTIVE
 )
+
+# --- First-run default for Wake: persist ON if unset ---
+try:
+    # If no user setting exists yet, write wake_mode=True so both main GUI and tray
+    # read a real, persisted boolean on disk from the very start.
+    wm = get_wake_mode()  # may return None/False/True depending on your utils impl
+    if wm is None:
+        # Persist ON once so future reads don't depend on defaults/fallbacks
+        set_wake_mode(True, persist=True, notify=False)
+except Exception:
+    # Never allow startup to fail just because of wake initialization
+    pass
+
 
 from utils import extract_name
 import utils  # load_settings/save_settings/current_build_id
@@ -129,6 +185,53 @@ ENABLE_CHANGE_LANG_HOTPHRASE_PROBE = True  # set True to allow saying "change la
 # ---- first-run Quick Start (main-preferred, tray fallback, cross-proc lock) ---
 SINGLETON_ADDR = ("127.0.0.1", 50573)
 
+# ---- polite exit server (for tray -> main) ----
+EXIT_ADDR = ("127.0.0.1", 50574)
+
+def _start_exit_server():
+    import socket, threading, time, os
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        s.bind(EXIT_ADDR)
+    except OSError:
+        # already bound by the main process
+        return
+    s.listen(2)
+
+    def _serve():
+        while True:
+            try:
+                conn, _ = s.accept()
+            except Exception:
+                break
+            with conn:
+                try:
+                    cmd = (conn.recv(64) or b"").decode("utf-8", "ignore").strip().upper()
+                except Exception:
+                    cmd = ""
+                if cmd == "EXIT":
+                    try:
+                        if not _EXITING.is_set():
+                            _EXITING.set()
+                            import utils
+                            utils.begin_exit_with_goodbye_async()  # speak → close (event-driven)
+                        try:
+                            conn.sendall(b"OK\n")
+                        except Exception:
+                            pass
+                    except Exception:
+                        try:
+                            _shutdown_main()
+                        except Exception:
+                            os._exit(0)
+
+    threading.Thread(target=_serve, daemon=True).start()
+
+# Start this very early
+_start_exit_server()
+
+
 APPDATA_DIR = _backend.user_data_dir()
 APPDATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -137,24 +240,24 @@ FIRST_TIP_SENTINEL = APPDATA_DIR / ".quick_start_shown"
 # NEW: cross-process "tip is open" lock
 TIP_LOCK_PATH = APPDATA_DIR / ".quick_start_open"
 
+import atexit, os
+from pathlib import Path
 
+_PIDFILE = APPDATA_DIR / "nova_main.pid"
 
-# --- Tell tray we are intentionally exiting (so watchdog pauses) ---
-def _notify_tray_user_exit():
+def _write_pidfile():
     try:
-        with socket.create_connection(SINGLETON_ADDR, timeout=0.5) as c:
-            c.sendall(b"BYE\n")  # tray writes the cooldown sentinel and replies OK
-            try:
-                c.settimeout(0.3)
-                _ = c.recv(16)   # optional ack; ignore errors
-            except Exception:
-                pass
+        _PIDFILE.write_text(str(os.getpid()), encoding="utf-8")
     except Exception:
         pass
 
-# Fire it on normal interpreter shutdown too (note: os._exit skips atexit, so we
-# will also call it explicitly in _shutdown_main below).
-atexit.register(_notify_tray_user_exit)
+def _remove_pidfile():
+    try:
+        if _PIDFILE.exists():
+            _PIDFILE.unlink()
+    except Exception:
+        pass
+
 
 
 def _acquire_tip_lock() -> bool:
@@ -175,11 +278,14 @@ def _release_tip_lock_safely():
 # ensure lock is removed on normal shutdown
 atexit.register(_release_tip_lock_safely)
 
+# also remove the PID file on normal interpreter exits
+atexit.register(_remove_pidfile)  
+
 _TIP_TIMER_ID = None
 TIP_WIN = None
 
 # Fixed delays measured FROM the instant the ready line speech begins
-TIP_DELAY_MS = {"en": 1500, "hi": 3800, "de": 2100, "fr": 2100, "es": 1700}
+TIP_DELAY_MS = {"en": 1800, "hi": 5700, "de": 2650, "fr": 3100, "es": 3050}
 
 def _schedule_tip_after_ready_line(code: str):
     try:
@@ -429,6 +535,11 @@ def _handoff_after_language(code: str):
         except Exception:
             pass
         set_language_flow(False)       # language flow done; tray handles wake state
+        # NEW: arm idle AFTER the ready line fully finishes
+        try:
+            schedule_idle_prompt()
+        except Exception:
+            pass
         # ❌ (removed) do not start mic here; tray owns it
 
     # Show the ready line EVERY time language changes (no dedupe key here)
@@ -445,7 +556,8 @@ def _estimate_tts_ms(text: str) -> int:
 def _say_then_show(text: str, key: str | None = None, after_speech=None):
     def worker():
         try:
-            speak(text)
+            # CHANGED: block until speech fully finishes to avoid race with after_speech
+            speak(text, blocking=True)
             wait_for_tts_quiet(200)
         finally:
             try:
@@ -480,6 +592,24 @@ def _bubble_localized_say_first(
 def _speak_ready_and_schedule_tip(code: str, *, key: str | None = None, after_speech=None):
     _sr_mute(12000)
     _schedule_tip_after_ready_line(code)
+
+    # NEW: If this is the FIRST-BOOT ready line, flip Wake ON right AFTER the Tip appears
+    try:
+        if LANG_PICKER_FROM_ONBOARDING[0]:
+            delay = TIP_DELAY_MS.get(code or "en", TIP_DELAY_MS["en"])
+            try:
+                _ = nova_gui.root.after(delay + 200, lambda: (
+                    set_wake_mode(True),
+                    _sync_wake_ui_from_settings()
+                ))
+            except Exception:
+                # Fallback timer if Tk is unavailable
+                import threading
+                threading.Timer((delay + 0.2), lambda: set_wake_mode(True)).start()
+    finally:
+        # Only auto-rearm wake for the first-boot ready line
+        LANG_PICKER_FROM_ONBOARDING[0] = False
+
     _bubble_localized_say_first(
         "How can I help you today?",
         hi="मैं आज आपकी कैसे मदद कर सकती हूँ?",
@@ -1166,6 +1296,13 @@ def pick_language_interactive_fuzzy() -> str:
             if code == current and from_onboarding:
                 try:
                     save_to_memory("language", code)
+                    try:
+                        s = utils.load_settings()   # read current settings.json
+                        s["language"] = code        # update just the language
+                        utils.save_settings(s)      # write it back
+                    except Exception:
+                        pass
+                    
                 except Exception:
                     pass
                 try:
@@ -1208,6 +1345,13 @@ def pick_language_interactive_fuzzy() -> str:
             utils.selected_language = code
             try:
                 save_to_memory("language", code)
+                try:
+                    s = utils.load_settings()   # read current settings.json
+                    s["language"] = code        # update just the language
+                    utils.save_settings(s)      # write it back
+                except Exception:
+                    pass
+
             except Exception:
                 pass
             try:
@@ -1289,6 +1433,29 @@ def _run_language_picker_async():
             utils.NAME_CAPTURE_IN_PROGRESS = True
             set_language_flow(True, suppress_ms=8000)
 
+            # ── QUIET EVERYTHING DURING THE LANGUAGE FLOW ───────────────────────
+            # 1) kill any pending idle/standby reminder so it won't speak mid-flow
+            try:
+                t = _idle_timer[0]
+                if t and hasattr(t, "cancel"):
+                    t.cancel()
+                _idle_timer[0] = None
+            except Exception:
+                pass
+
+            # 2) cut any TTS that might still be playing as we open the picker
+            try:
+                utils.try_stop_tts_playback()
+            except Exception:
+                pass
+
+            # 3) mute recognizer apologies ("Sorry, could you repeat?") for ~12 s
+            #    (you can also call _sr_mute(12000); both route to the same suppressor)
+            try:
+                utils.suppress_sr_prompts(12000)
+            except Exception:
+                pass
+
             # --- boolean wake handling ---
             prev_wake = bool(get_wake_mode())
             turned_off = False
@@ -1318,6 +1485,13 @@ def _run_language_picker_async():
                             pass
                 except Exception:
                     pass
+
+                # re-arm the idle reminder after the flow is fully wrapped up
+                try:
+                    schedule_idle_prompt()
+                except Exception:
+                    pass
+
                 utils.NAME_CAPTURE_IN_PROGRESS = False
 
         finally:
@@ -1325,17 +1499,15 @@ def _run_language_picker_async():
 
     threading.Thread(target=worker, daemon=True).start()
 
+
 # -------------------------------
-# NAME VALIDATION  (file-driven blocklist)
+# NAME VALIDATION (embedded + optional hashed list)
 # -------------------------------
-import re as _re2, unicodedata
-from pathlib import Path as _Path2
+import re as _re2, unicodedata, hashlib, os
 
 _NAME_MIN_LEN = 2
 _NAME_MAX_LEN = 30
 _ALLOWED_PUNCT = {" ", "-", "'", "’"}
-
-DATA_DIR = _Path2(APP_DIR) / "data"
 
 def _normalize_unicode(s: str) -> str:
     if not s:
@@ -1343,39 +1515,85 @@ def _normalize_unicode(s: str) -> str:
     s = unicodedata.normalize("NFC", s)
     return s.replace("\ufeff", "").replace("\u200b", "").replace("\u200c", "").replace("\u200d", "")
 
-def _load_name_blocklist(locale_code: str = "en") -> set[str]:
-    candidates = [
-        DATA_DIR / f"name_blocklist_{locale_code}.txt",
-        DATA_DIR / "name_blocklist_en.txt",
-        _Path2(APP_DIR) / "assets" / f"name_blocklist_{locale_code}.txt",
-        _Path2(APP_DIR) / "assets" / "name_blocklist_en.txt",
-    ]
-    items: set[str] = set()
-    for p in candidates:
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                for line in f:
-                    w = line.split("#", 1)[0].strip().lstrip("\ufeff")
-                    if not w:
-                        continue
-                    items.add(w.casefold())
-            if items:
-                break
-        except Exception:
-            continue
+# --- embedded plain (multi-lang, common items) ---
+def _load_name_blocklist_plain() -> set[str]:
+    return {
+        # reserved/confusing
+        "nova","admin","root","system","null","undefined","unknown","test",
 
-    if not items:
-        items = {
-            "nova", "admin", "root", "system",
-            "null", "undefined", "unknown", "test",
-            "lol", "lmao", "wtf", "bruh", "bro", "dude",
-            "fuck", "shit", "sex", "porn", "xxx",
-            "yes","no","ok","okay","yep","yeah",
-            "nope","nah","thanks","thank","thank you"
-        }
-    return items
+        # dialogue / acknowledgements (multi-lang)
+        "yes","no","ok","okay","yep","yeah","nope","nah","thanks","thank","thank you",
+        "sí","si","gracias",
+        "oui","non","merci",
+        "ja","nein","danke",
+        "हाँ","हां","नहीं","haan","han","nahin","nahi","shukriya","dhanyavaad","धन्यवाद","शुक्रिया","theek","thik","ठीक",
 
-_NAME_BLOCKLIST = _load_name_blocklist("en")
+        # meme-y / non-names
+        "lol","lmao","wtf","omg","rofl","xd","bruh","bro","dude",
+
+        # profanity/adult (EN)
+        "fuck","shit","sex","porn","xxx","hoe","whore","bitch",
+
+        # profanity/adult (ES)
+        "puta","puto","mierda","coño","culo","polla","sexo","porno",
+
+        # profanity/adult (FR)
+        "merde","putain","salope","connard","con","sexe","porno",
+
+        # profanity/adult (DE)
+        "scheiße","scheisse","hure","fotze","wichser","arsch","sex","porno","hurensohn",
+
+        # profanity/adult (HI + common romanizations)
+        "सेक्स","पोर्न","वेश्या","चूतिया","गांडू","कमिना","बहनचोद","मादरचोद",
+        "chutiya","gaandu","kamina","kaminaa","behenchod","madarchod","vashya","veshya","rand","randi",
+        "bokachoda","lawda","lawdu",
+
+        # extra romanized variants (common one-edit neighbors)
+        "benchod","behnchod","bhenchod","behenchode",
+        "madarchode","maadarchod",
+        "gaand","gandu","ganduu",
+        "rundi","raand","bc","mc",
+    }
+
+_NAME_BLOCKLIST = _load_name_blocklist_plain()
+
+# --- hashed high-severity list (optional) ---
+# Option A: paste hashes here (one per item), or
+# Option B: inject via env var NOVA_HASHED_NAME_BLOCKLIST="hash1,hash2,..."
+_HASHED_BLOCKLIST: set[str] = set(
+    h.strip().lower()
+    for h in (os.getenv("NOVA_HASHED_NAME_BLOCKLIST", "")).split(",")
+    if h.strip()
+)
+# If you prefer pasting directly, change to: _HASHED_BLOCKLIST = {"abc123...", "def456...", ...}
+
+# --- canonicalization for hashing (must match the helper script) ---
+_LEET_MAP = {"0":"o","1":"i","3":"e","4":"a","5":"s","7":"t","$":"s","@":"a"}
+
+def _strip_diacritics(s: str) -> str:
+    nfkd = unicodedata.normalize("NFKD", s)
+    return "".join(ch for ch in nfkd if not unicodedata.combining(ch))
+
+def _collapse_repeats(s: str) -> str:
+    out = []
+    prev = None
+    for ch in s:
+        if ch != prev:
+            out.append(ch)
+            prev = ch
+    return "".join(out)
+
+def _apply_leet(s: str) -> str:
+    return "".join(_LEET_MAP.get(ch, ch) for ch in s)
+
+def _canonicalize_for_hash(tok: str) -> str:
+    t = (tok or "").casefold().strip()
+    # keep letters across scripts
+    t = "".join(ch for ch in t if ch.isalpha())
+    t = _apply_leet(t)
+    t = _strip_diacritics(t)
+    t = _collapse_repeats(t)
+    return t
 
 def _normalize_spaces(s: str) -> str:
     return " ".join((s or "").split())
@@ -1387,7 +1605,6 @@ def _looks_like_name(s: str) -> bool:
     return any(c.isalpha() for c in s)
 
 _TOKEN_SPLIT = _re2.compile(r"[ \-\u2010-\u2015'’]+")
-
 def _tokens(s: str):
     return _TOKEN_SPLIT.split(s)
 
@@ -1405,14 +1622,28 @@ def validate_name_strict(name_raw: str) -> tuple[bool, str, str]:
     if not _looks_like_name(cleaned):
         return (False, "", "no_letters")
 
-    toks = [t.casefold() for t in _tokens(cleaned) if t]
+    toks = [t for t in (_t.casefold() for _t in _tokens(cleaned)) if t]
+
+    # 1) plain list (exact token, case-insensitive)
     if any(t in _NAME_BLOCKLIST for t in toks):
         return (False, "", "blocked")
 
+    # 2) hashed high-severity (canonicalized + SHA-256)
+    if _HASHED_BLOCKLIST:
+        for t in toks:
+            c = _canonicalize_for_hash(t)
+            if not c:
+                continue
+            h = hashlib.sha256(c.encode("utf-8")).hexdigest()
+            if h in _HASHED_BLOCKLIST:
+                return (False, "", "blocked")
+
+    # 3) language word guard (relies on _LANG_ALIAS defined elsewhere)
     lang_alias_union = set().union(*_LANG_ALIAS.values())
     if cleaned.casefold() in lang_alias_union:
         return (False, "", "looks_like_language")
 
+    # 4) nice-case ASCII names
     try:
         if all(ord(c) < 128 for c in cleaned):
             cleaned = " ".join(p.capitalize() for p in cleaned.split(" "))
@@ -1421,9 +1652,15 @@ def validate_name_strict(name_raw: str) -> tuple[bool, str, str]:
 
     return (True, cleaned, "")
 
-def reload_name_blocklist(locale_code: str = "en"):
-    global _NAME_BLOCKLIST
-    _NAME_BLOCKLIST = _load_name_blocklist(locale_code)
+def reload_name_blocklist(*_args, **_kwargs):
+    # Nothing to reload for the embedded set.
+    # If you inject hashes via env var at runtime, you can update _HASHED_BLOCKLIST here.
+    global _HASHED_BLOCKLIST
+    _HASHED_BLOCKLIST = set(
+        h.strip().lower()
+        for h in (os.getenv("NOVA_HASHED_NAME_BLOCKLIST", "")).split(",")
+        if h.strip()
+    )
 
 
 # -------------------------------
@@ -1521,6 +1758,14 @@ def _maybe_handle_voice_name_change(utterance: str) -> bool:
         save_to_memory("name", cleaned)
     except Exception:
         pass
+
+    # persist to settings.json
+    try:
+        import utils
+        utils.set_user_name(cleaned)
+    except Exception:
+        pass
+
     _say_name_set_localized(cleaned)
     return True
 
@@ -1562,6 +1807,13 @@ def _accept_and_continue_with_name(cleaned: str):
         save_to_memory("name", cleaned)
     except Exception:
         pass
+    # persist to settings.json
+    try:
+        import utils
+        utils.set_user_name(cleaned)
+    except Exception:
+        pass
+
     example_names = {"en": "Alex", "hi": "Ajay", "fr": "Alexandre", "es": "Alejandro", "de": "Alexander"}
     ex = example_names.get(utils.selected_language or "en", "Alex")
     line = f"Nice to meet you, {cleaned}! You can later change your name by saying or typing 'My name is {ex}'."
@@ -1673,41 +1925,29 @@ def ask_user_name_on_boot_async():
 
                 # Force-show the full confirm sentence immediately (dedup by key)
                 try:
-                    nova_gui.root.after(0, lambda: _show_once("NOVA", f"I heard '{candidate}'. Is that correct? Please type 'Yes' or 'No' below in the chatbox provided.", key=f"confirm_name_{attempt}", delay_ms=0))
+                    nova_gui.root.after(0, lambda: _show_once(
+                        "NOVA",
+                        f"I heard '{candidate}'. Is that correct? Please type 'Yes' or 'No' below in the chatbox provided.",
+                        key=f"confirm_name_{attempt}",
+                        delay_ms=0
+                    ))
                 except Exception:
-                    _show_once("NOVA", f"I heard '{candidate}'. Is that correct? Please type 'Yes' or 'No' below in the chatbox provided.", key=f"confirm_name_{attempt}", delay_ms=0)
+                    _show_once(
+                        "NOVA",
+                        f"I heard '{candidate}'. Is that correct? Please type 'Yes' or 'No' below in the chatbox provided.",
+                        key=f"confirm_name_{attempt}",
+                        delay_ms=0
+                    )
 
-                # Make sure speech finishes, then wait for a TYPED yes/no
+                # Make sure speech finishes, then hand off to the typed chat intercept.
                 wait_for_tts_quiet(300)
                 try:
                     utils.try_stop_tts_playback()
                 except Exception:
                     pass
 
-                # ⏳ Wait up to 15s for the chat-intercept to handle typed yes/no
-                for _ in range(30):  # 30 * 0.5s = 15s
-                    if _PENDING_NAME_CONFIRM.get("handled") or NAME_FLOW_DONE[0]:
-                        return  # typed handled, or flow already continued
-                    time.sleep(0.5)
-
-                # No typed response → retry (attempt 0) or typed-name fallback (attempt 1)
-                if attempt == 0 and not NAME_FLOW_DONE[0]:
-                    _maybe_prompt_repeat("name_repeat_once")
-                    _clear_pending_name_confirm()
-                    continue
-
-                # attempt == 1 → ask user to TYPE their name
-                if not NAME_FLOW_DONE[0]:
-                    try:
-                        nova_gui.name_capture_active = True
-                    except Exception:
-                        pass
-                    _say_then_show(
-                        "Okay — Please type your name below in the chatbox provided, e.g. Alex.",
-                        key="name_after_no_typed"
-                    )
-                    _clear_pending_name_confirm()
-                    return
+                # 🚫 Removed time-bound wait: let the chat intercept handle typed Yes/No indefinitely.
+                return
 
             # Safety net (normally we return above)
             if not NAME_FLOW_DONE[0]:
@@ -1742,7 +1982,6 @@ def ask_user_name_on_boot_async():
 def _run_language_picker():
     # kept for compatibility (not used directly on the UI thread now)
     _run_language_picker_async()
-
 
 # -------------------------------
 # Name & Language capture via chatbox + typed intents
@@ -1911,6 +2150,12 @@ def _install_chatbox_name_capture_intercept():
                 save_to_memory("name", cleaned)
             except Exception:
                 pass
+            # persist to settings.json
+            try:
+                import utils
+                utils.set_user_name(cleaned)
+            except Exception:
+                pass
             _say_name_set_localized(cleaned)
             return
 
@@ -1953,6 +2198,13 @@ def _install_chatbox_name_capture_intercept():
                 if LANG_PICKER_FROM_ONBOARDING[0]:
                     try:
                         save_to_memory("language", code)
+                        try:
+                            s = utils.load_settings()   # read current settings.json
+                            s["language"] = code        # update just the language
+                            utils.save_settings(s)      # write it back
+                        except Exception:
+                            pass
+
                     except Exception:
                         pass
                     utils.selected_language = code
@@ -1984,6 +2236,13 @@ def _install_chatbox_name_capture_intercept():
             # valid new language -> save, apply UI tint
             try:
                 save_to_memory("language", code)
+                try:
+                    s = utils.load_settings()   # read current settings.json
+                    s["language"] = code        # update just the language
+                    utils.save_settings(s)      # write it back
+                except Exception:
+                    pass
+
             except Exception:
                 pass
             utils.selected_language = code
@@ -2142,7 +2401,11 @@ def _gv(var_name, default=False):
 def _shutdown_main():
     global _TIP_TIMER_ID
 
-    _notify_tray_user_exit()
+    # Remove the PID file early (clean shutdown path).
+    try:
+        _remove_pidfile()
+    except Exception:
+        pass
 
     try:
         # cancel the one-shot tray tip timer
@@ -2187,32 +2450,31 @@ def _shutdown_main():
             nova_gui.root.destroy()
         except Exception:
             pass
+
     finally:
         # make sure the Quick Start cross-process lock is cleared
         try:
             _release_tip_lock_safely()
         except Exception:
             pass
+
+        # try again in case we crashed before the early removal
+        try:
+            _remove_pidfile()
+        except Exception:
+            pass
+
         os._exit(0)
 
+
 def _begin_exit_async():
-    # Debounce repeated clicks
     if _EXITING.is_set():
         return
     _EXITING.set()
-
-    # Tell tray we’re exiting on purpose (so the watchdog pauses)
-    try:
-        _notify_tray_user_exit()
-    except Exception:
-        pass
-
-    # Hand off to the centralized async goodbye + clean shutdown
     try:
         import utils
-        utils.begin_exit_with_goodbye_async()
+        utils.begin_exit_with_goodbye_async()   # ← no timeout
     except Exception:
-        # Fallback: if anything odd happens, at least shut down cleanly
         _shutdown_main()
 
 def _bind_close_button_to_exit():
@@ -2310,6 +2572,11 @@ def voice_loop():
             time.sleep(0.3)
             continue
 
+        # NEW: if TTS is speaking, don't open the mic (prevents self-echo & "repeat" spam)
+        if hasattr(utils, "tts_busy") and getattr(utils.tts_busy, "is_set", lambda: False)():
+            time.sleep(0.1)
+            continue
+
         # Wake is OFF → we own the mic loop
         wait_for_tts_quiet(200)
         command = listen_command(skip_tts_gate=True)
@@ -2377,7 +2644,6 @@ def voice_loop():
             is_chemistry_override=_gv("chemistry_mode_var"),
         )
 
-
 # -------------------------------
 # MAIN
 # -------------------------------
@@ -2387,12 +2653,12 @@ _GREETED_ONCE = False
 if __name__ == "__main__":
     START_HIDDEN = any(arg in sys.argv for arg in ("--hidden", "--tray", "--minimized"))
 
+    _ensure_wake_default_on()
+
     # Make sure the tray is up so wake + tip sync works
     if os.name == "nt":
         _ensure_tray_running()
    
-
-    _ensure_wake_default_on()
 
     # Native Linux (optional tray). Never in WSL. Safe no-op if file/deps missing.
     s = load_settings()
@@ -2436,6 +2702,7 @@ if __name__ == "__main__":
     # Import GUI after defaulting wake mode & hydrating language
     from gui_interface import get_gui as _get_gui
     nova_gui = _get_gui()
+    _write_pidfile()  
 
     # Track when the window appears and when it stops moving/resizing
     try:
@@ -2446,7 +2713,7 @@ if __name__ == "__main__":
 
     # Preferred title
     try:
-        nova_gui.root.title("NOVA - AI Assistant")
+        nova_gui.root.title("Nova - AI Assistant")
     except Exception:
         pass
 
@@ -2476,15 +2743,14 @@ if __name__ == "__main__":
             de="Hallo! Ich bin Nova, deine KI-Assistentin. Ich bin online und bereit zu helfen.",
             fr="Bonjour ! Je suis Nova, votre assistante IA. Je suis en ligne et prête à aider.",
             es="¡Hola! Soy Nova, tu asistente de IA. Estoy en línea y lista para ayudar.",
-            key="greet_hello"
+            key="greet_hello",
+            after_speech=lambda: _speak_ready_and_schedule_tip(
+                utils.selected_language or code or "en",
+                key=f"greet_help_{utils.selected_language or code or 'en'}"
         )
+    )    
         log_interaction("startup", "greet_ready_localized", code)
 
-        
-
-        # ✅ schedule the tip exactly when the ready line starts speaking
-        _speak_ready_and_schedule_tip(utils.selected_language or code or "en",
-                              key=f"greet_help_{utils.selected_language or code or 'en'}")
 
         # Post-greet follow-ups
         schedule_idle_prompt()
@@ -2498,25 +2764,50 @@ if __name__ == "__main__":
         except Exception as e:
             logger.error(f"Birthday prompt failed: {e}")
 
+
     def _greet_first_run():
-        """First boot: greet, suppress SR nudge briefly, then start name flow after bubble appears."""
+        """First boot: greet, then start name flow exactly after speech finishes."""
         global _GREETED_ONCE
         if _GREETED_ONCE:
             return
         _GREETED_ONCE = True
 
-        greet_text = "Hello! I’m Nova, your AI assistant. I’m online and ready to help you."
-        _say_then_show(greet_text, key="greet_hello", after_speech=lambda: _sr_mute(7000))
-        log_interaction("startup", greet_text, "en")
-
-        # Start the name flow AFTER the greet bubble would appear (fixes out-of-order)
+        # NEW: pause voice loop during greet and force Wake OFF so tray shows no green dot
+        import utils as _u
+        _u.NAME_CAPTURE_IN_PROGRESS = True
         try:
-            delay = _estimate_tts_ms(greet_text) + 200  # tiny cushion
-            nova_gui.root.after(delay, ask_user_name_on_boot_async)
+            if get_wake_mode():
+                set_wake_mode(False)
+                try:
+                    _sync_wake_ui_from_settings()
+                except Exception:
+                    pass
         except Exception:
-            ask_user_name_on_boot_async()
-        # TIP will be triggered only after the ready line when language gets set.
+            pass
 
+        greet_text = "Hello! I’m Nova, your AI assistant. I’m online and ready to help you."
+
+        def _after_greet():
+            try:
+                _sr_mute(7000)  # keep SR prompts quiet after the greet
+            except Exception:
+                pass
+            try:
+                # start name flow *after* TTS actually finished
+                ask_user_name_on_boot_async()
+            except Exception:
+                pass
+
+        # Speak first, then show; chain name flow after speech
+        _say_then_show(greet_text, key="greet_hello", after_speech=_after_greet)
+
+        # Log the startup greet (first boot is English)
+        try:
+            log_interaction("startup", greet_text, "en")
+        except Exception:
+            pass
+
+    
     if START_HIDDEN:
         try:
             nova_gui.root.withdraw()

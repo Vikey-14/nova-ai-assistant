@@ -47,6 +47,7 @@ except Exception:
                          log_command="symbolic_math_missing")
 
 # === Other domains (normal GUI pathways)
+from handlers.pokemon_commands import is_pokemon_command, handle_pokemon_command
 from handlers.news_commands import handle_news
 from handlers.system_commands import handle_system_commands
 from handlers.wiki_commands import handle_wikipedia
@@ -206,6 +207,14 @@ def is_set_reminder(command: str) -> bool:
     return any(kw in cmd for kw in kws) or fuzzy_in(cmd, kws)
 COMMAND_REGISTRY.append((is_set_reminder, handle_set_reminder))
 
+
+# ────────────────────────────────────────────────────────────────
+# 🐾 Pokémon (voice + typed)
+# ────────────────────────────────────────────────────────────────
+COMMAND_REGISTRY.append((is_pokemon_command, handle_pokemon_command))
+
+
+
 # ────────────────────────────────────────────────────────────────
 # 🌐 Web (additive fuzzy)
 # ────────────────────────────────────────────────────────────────
@@ -249,11 +258,21 @@ def is_holiday_query(command: str) -> bool:
         return True
     # fallback if not split out:
     holiday_terms = (
+        # English
         "christmas", "diwali", "eid", "holiday", "new year",
-        "noël", "férié", "navidad", "feriado", "feiertag", "weihnachten"
+        # French
+        "noël", "férié",
+        # Spanish
+        "navidad", "feriado",
+        # German
+        "feiertag", "weihnachten",
+        # Hindi (added)
+        "क्रिसमस", "दिवाली", "ईद", "त्योहार", "छुट्टी", "नया साल"
     )
     return any(t in cmd for t in holiday_terms)
+
 COMMAND_REGISTRY.append((is_holiday_query, handle_holiday_queries))
+
 
 # ────────────────────────────────────────────────────────────────
 # 🌦️ Weather / 🗞️ News / 📚 Wikipedia (additive fuzzy)
@@ -445,6 +464,7 @@ KEY_TO_HANDLER = {
     "math_query": handle_basic_math,
     "physics_query": handle_physics_question,
     "chemistry_query": handle_chemistry_query,
+    "chemistry_fact": handle_chemistry_query,   # ← add this line
 
     # If you want: memory ops can be added too; generally safe:
     "remember_name": handle_remember_name,

@@ -162,6 +162,100 @@ def process_command(
     is_physics_override: bool = False,
     is_chemistry_override: bool = False,   # 🧪 NEW
 ):
+    # ---- English-only name confirmation guard (pre-language-change) ----
+    try:
+        from main import (
+            _PENDING_NAME_CONFIRM,
+            _clear_pending_name_confirm,
+            validate_name_strict,
+            _accept_and_continue_with_name,
+        )
+
+        # Build YES/NO synonym sets from intents (use everything defined there)
+        try:
+            import intents as _int
+            def _collect(name_list):
+                out = []
+                for nm in name_list:
+                    if hasattr(_int, nm):
+                        val = getattr(_int, nm)
+                        if isinstance(val, (list, tuple, set)):
+                            out.extend(val)
+                        elif isinstance(val, str):
+                            out.append(val)
+                return out
+
+            yes_syns = _collect([
+                "YES_SYNONYMS", "YES_WORDS", "AFFIRMATIVE", "YES_TOKENS",
+                "YES", "YES_LIST", "YES_VARIANTS"
+            ])
+            no_syns = _collect([
+                "NO_SYNONYMS", "NO_WORDS", "NEGATIVE", "NO_TOKENS",
+                "NO", "NO_LIST", "NO_VARIANTS"
+            ])
+        except Exception:
+            yes_syns, no_syns = [], []
+
+        YES_SET = {str(w).strip().lower() for w in yes_syns if str(w).strip()}
+        NO_SET  = {str(w).strip().lower() for w in no_syns if str(w).strip()}
+        # Always include the basics
+        YES_SET.update({"yes", "y"})
+        NO_SET.update({"no", "n"})
+
+        txt_guard = (raw_command or "").strip()
+        low = txt_guard.lower()
+
+        # Normalize lightweight punctuation for equality/starts-with checks
+        def _clean(s: str) -> str:
+            # keep letters, numbers, spaces, common apostrophes/dashes, and Indic/Latin ranges
+            s = re.sub(r"[^\w \-’'À-ÿ\u0900-\u097F]", " ", s, flags=re.UNICODE)
+            s = re.sub(r"\s{2,}", " ", s).strip()
+            return s.lower()
+
+        low_clean = _clean(low)
+        cand = _PENDING_NAME_CONFIRM.get("candidate") or ""
+
+        # Helper: does the message equal or start with any token in the set?
+        def _matches_token(token_set, text):
+            if not token_set:
+                return False
+            for tok in token_set:
+                if not tok:
+                    continue
+                t = _clean(tok)
+                if not t:
+                    continue
+                if text == t or text.startswith(t + " "):
+                    return True
+            return False
+
+        if _PENDING_NAME_CONFIRM.get("active") and not _PENDING_NAME_CONFIRM.get("handled"):
+            # yes → accept candidate name via onboarding finisher (speaks English-only inside)
+            if _matches_token(YES_SET, low_clean) and cand:
+                _PENDING_NAME_CONFIRM["handled"] = True
+                _clear_pending_name_confirm()
+                _accept_and_continue_with_name(cand)
+                return
+
+            # "no, it's <name>" or "no it is <name>" (basic English form)
+            m = re.search(r"(?i)^\s*no[\s,.:;-]+(?:it\s*'?s|it\s+is)\s+(.+)$", txt_guard)
+            if m:
+                proposed = m.group(1).strip(" \t:,-.'’")
+                ok, cleaned, _ = validate_name_strict(proposed)
+                if ok:
+                    _PENDING_NAME_CONFIRM["handled"] = True
+                    _clear_pending_name_confirm()
+                    _accept_and_continue_with_name(cleaned)
+                    return
+
+            # plain/other "no" → mark handled; upstream flow will prompt for typed name
+            if _matches_token(NO_SET, low_clean):
+                _PENDING_NAME_CONFIRM["handled"] = True
+                _clear_pending_name_confirm()
+                return
+    except Exception:
+        pass
+
     from utils import _speak_multilang, log_interaction, selected_language
     current_lang = selected_language
 

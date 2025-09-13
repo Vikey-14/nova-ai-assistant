@@ -1,11 +1,14 @@
 {
   "folders": [
-    {
-      "path": "."
-    }
+    { "path": "." }
   ],
   "settings": {
     "terminal.integrated.cwd": "C:\\Users\\user\\Documents\\nova_ai_assistant",
-    "python.defaultInterpreterPath": "venv\\Scripts\\python.exe"
+    "python.languageServer": "Pylance",
+    "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+    "python.terminal.activateEnvironment": true,
+    "python.analysis.diagnosticSeverityOverrides": {
+      "reportMissingModuleSource": "none"
+    }
   }
 }

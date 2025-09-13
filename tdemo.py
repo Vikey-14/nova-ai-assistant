@@ -12,6 +12,9 @@ try:
 except Exception:
     HAVE_UTILS = False
 
+print("[ready_tip_calibrator] HAVE_UTILS =", HAVE_UTILS)
+
+
 # ---------------- Timing helpers (same structure as main) ----------------
 def _estimate_ms(text: str, ms_per_word: int, min_ms: int, cushion_ms: int) -> int:
     words = max(1, len((text or "").split()))

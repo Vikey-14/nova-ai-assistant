@@ -13,17 +13,12 @@ def handle_system_commands(command: str) -> None:
     exit_phrases = COMMAND_MAP["exit_app"]
     matched_exit = get_close_matches(command, exit_phrases, n=1, cutoff=0.7)
     if matched_exit:
-        from utils import _speak_multilang
-        print("👋 NOVA: Exiting.")
-        _speak_multilang(
-            "Shutting down. Goodbye!",
-            hi="बंद कर रही हूँ। अलविदा!",
-            fr="Je ferme. Au revoir !",
-            es="Apagando. ¡Adiós!",
-            de="Ich fahre herunter. Auf Wiedersehen!",
-            log_command="App exited by user"
-        )
-        exit()
+        # Use the unified closer: plays goodbye in current UI language,
+        # waits for audio to finish, then closes the Tk app cleanly.
+        from utils import begin_exit_with_goodbye_async
+        begin_exit_with_goodbye_async()
+        return
+
 
     # 🔊 Volume Control
     all_volume_phrases = []

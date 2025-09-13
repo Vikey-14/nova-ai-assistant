@@ -31,13 +31,15 @@ def handle_remember_name(command: str):
     if name:
         save_to_memory("name", name)
         logger.info(f"🧠 Name remembered: {name}")
-        _speak_multilang(
-            f"Nice to meet you, {name}!",
-            hi=f"आपसे मिलकर खुशी हुई, {name}।",
-            fr=f"Ravie de vous rencontrer, {name} !",
-            es=f"Encantada de conocerte, {name}!",
-            de=f"Freut mich, dich kennenzulernen, {name}!"
-        )
+
+        # ✅ Consistent post-onboarding response:
+        # Prefer the app's localized line; fall back to English-only if unavailable.
+        try:
+            from main import _say_name_set_localized  # speaks in current UI language
+            _say_name_set_localized(name)
+        except Exception:
+            from utils import speak
+            speak(f"Got it — I'll call you {name} from now on.")
     else:
         logger.warning("⚠️ Failed to extract name from command")
         _speak_multilang(
@@ -95,7 +97,8 @@ def handle_store_preference(command: str):
             raise ValueError("Empty preference")
 
     except Exception as e:
-        logger.error(f"❌ Failed to store preference: {e}")
+        from utils import logger as _logger
+        _logger.error(f"❌ Failed to store preference: {e}")
         _speak_multilang(
             "Sorry, I couldn't understand your preference.",
             hi="माफ़ कीजिए, मैं आपकी पसंद नहीं समझ पाई।",

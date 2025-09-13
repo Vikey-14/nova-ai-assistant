@@ -1,7 +1,7 @@
+# -*- coding: utf-8 -*-
 # 📘 normalizer.py — Hinglish → Hindi (Devanagari) Normalizer
 
 import re
-
 
 # Base Hinglish → Hindi map (general + math/UX), digits kept ASCII
 hinglish_map = {
@@ -94,6 +94,9 @@ hinglish_map = {
     "ka": "का",
     "ki": "की",
     "ke": "के",
+    "liye": "लिए",
+    "ke liye": "के लिए",
+    "keliye": "के लिए",
 
     # 📖 Wiki Queries
     "kaun hai": "क्या है",
@@ -186,7 +189,7 @@ hinglish_map = {
     "phir se kahiye": "फिर से कहिए",
     "dobara boliye": "दोबारा बोलिए",
     "repeat karo": "फिर से कहिए",
-    "kya aap dobara kahenge": "क्या आप दोबारा कहेंगे",
+    "kya aap dobara kahenge": "क्या आप दोबरा कहेंगे",
     "galat samjha": "गलत समझा",
     "command clear nahi hai": "कमांड स्पष्ट नहीं है",
 
@@ -276,12 +279,19 @@ hinglish_map = {
     "integral": "इंटीग्रल",
     "derivative": "व्युत्पन्न",
     "differentiate": "व्युत्पन्न निकालो",
-    "nikalo": "निकालो"
+    "nikalo": "निकालो",
+
+    # ✅ Extra common verbs/UX we use in Pokémon flows
+    "kholo": "खोलो",
+    "dikhayo": "दिखाओ",
+    "hatao": "हटाओ",
+    "jodo": "जोड़ो",
+    "lagao": "लगाओ",
+    "set karo": "सेट करो",
+    "badal do": "बदल दो",
 }
 
-
 # 🧲 Physics (Hinglish → Hindi) — extended with common romanized spellings
-
 PHYSICS_HINGLISH_MAP = {
     # — Mode / intent —
     "physics mode": "फिजिक्स मोड",
@@ -292,7 +302,7 @@ PHYSICS_HINGLISH_MAP = {
     "fiziks": "फिजिक्स",
 
     # — Kinematics / projectile —
-    "projectile": "прक्षेप्य",
+    "projectile": "प्रक्षेप्य",
     "projectile motion": "प्रक्षेप्य गति",
     "time of flight": "उड़ान का समय",
     "maximum height": "अधिकतम ऊँचाई",
@@ -349,7 +359,7 @@ PHYSICS_HINGLISH_MAP = {
     "speed of light": "प्रकाश का वेग",
     "value of g": "g का मान",
 
-    # — Proportionality / scaling phrases (for quick-facts) —
+    # — Proportionality / scaling phrases —
     "proportional to": "अनुपाती",
     "inversely proportional": "व्युत्क्रमानुपाती",
     "depends on": "निर्भर करता है",
@@ -430,7 +440,6 @@ PHYSICS_ROMAN_HI_MAP = {
     "spring sthirank": "स्प्रिंग स्थिरांक",
 }
 
-
 # 🧪 Chemistry (Hinglish → Hindi) — safe for parsers (no unit/formula rewrites)
 CHEM_HINGLISH_MAP = {
     # Core intents / tasks
@@ -472,7 +481,7 @@ CHEM_HINGLISH_MAP = {
     "ph nikal do": "पीएच निकाल दो",
     "poh nikal do": "पीओएच निकाल दो",
 
-    # Gas laws (keep formulas/symbols ASCII in user text)
+    # Gas laws
     "gas law": "गैस नियम",
     "boyle law": "बॉयल का नियम",
     "charles law": "चार्ल्स का नियम",
@@ -594,21 +603,211 @@ CHEM_HINGLISH_MAP = {
     "do mmol": "2 mmol",
     "teen mmol": "3 mmol",
     "pandrah mmol": "15 mmol",
-    "unnees mmol": "19 mmol"
+    "unnees mmol": "19 mmol",
 }
 
-# 🔗 Merge: physics first (intent/colloquial), then chemistry
+# 🐾 Pokémon (Hinglish → Hindi)
+POKEMON_HINGLISH_MAP = {
+    # Core nouns / app words
+    "pokemon": "पोकेमोन",
+    "pokémon": "पोकेमोन",
+    "pokedex": "पोकेडेक्स",
+    "pokédex": "पोकेडेक्स",
+    "pokidex": "पोकेडेक्स",
+    "pokadex": "पोकेडेक्स",
+
+    # Common actions (phrases)
+    "list pokemon": "पोकेमोन सूची",
+    "show pokemon": "पोकेमोन दिखाओ",
+    "pokemon details": "पोकेमोन विवरण",
+    "show pokemon details": "पोकेमोन विवरण दिखाओ",
+    "open pokedex": "पोकेडेक्स खोलो",
+    "show pokedex": "पोकेडेक्स दिखाओ",
+
+    "add pokemon": "पोकेमोन जोड़ो",
+    "create pokemon": "पोकेमोन बनाओ",
+
+    "update pokemon": "पोकेमोन अपडेट",
+    "edit pokemon": "पोकेमोन बदलो",
+
+    "delete pokemon": "पोकेमोन हटाओ",
+    "remove pokemon": "पोकेमोन हटाओ",
+
+    "pokemon help": "पोकेमोन मदद",
+    "help pokemon": "पोकेमोन मदद",
+
+    # Fields / attributes
+    "level": "लेवल",
+    "type": "टाइप",
+    "nickname": "निकनेम",
+    "nick name": "निकनेम",
+    "name": "नाम",
+    "id": "आईडी",
+
+    # Field actions
+    "set level": "लेवल सेट",
+    "change level": "लेवल बदलो",
+    "set type": "टाइप सेट",
+    "change type": "टाइप बदलो",
+    "set nickname": "निकनेम सेट",
+    "change nickname": "निकनेम बदलो",
+
+    # Types (18) — single tokens
+    "bug": "बग",
+    "dark": "डार्क",
+    "dragon": "ड्रैगन",
+    "electric": "इलेक्ट्रिक",
+    "fairy": "फेयरी",
+    "fighting": "फाइटिंग",
+    "fire": "फायर",
+    "flying": "फ्लाइंग",
+    "ghost": "घोस्ट",
+    "grass": "ग्रास",
+    "ground": "ग्राउंड",
+    "ice": "आइस",
+    "normal": "नॉर्मल",
+    "poison": "पॉइज़न",
+    "psychic": "साइकीक",
+    "rock": "रॉक",
+    "steel": "स्टील",
+    "water": "वॉटर",
+
+    # Helpful type phrases (18 × “type”)
+    "bug type": "बग टाइप",
+    "dark type": "डार्क टाइप",
+    "dragon type": "ड्रैगन टाइप",
+    "electric type": "इलेक्ट्रिक टाइप",
+    "fairy type": "फेयरी टाइप",
+    "fighting type": "फाइटिंग टाइप",
+    "fire type": "फायर टाइप",
+    "flying type": "फ्लाइंग टाइप",
+    "ghost type": "घोस्ट टाइप",
+    "grass type": "ग्रास टाइप",
+    "ground type": "ग्राउंड टाइप",
+    "ice type": "आइस टाइप",
+    "normal type": "नॉर्मल टाइप",
+    "poison type": "पॉइज़न टाइप",
+    "psychic type": "साइकीक टाइप",
+    "rock type": "रॉक टाइप",
+    "steel type": "स्टील टाइप",
+    "water type": "वॉटर टाइप",
+}
+
+# 🧩 Pokémon — NEW phrases for Images/Gallery, Team, Trainer, CSV/Download
+POKEMON_EXTRAS_MAP = {
+    # 🖼️ Images / Gallery keywords
+    "image": "इमेज",
+    "images": "इमेज",
+    "photo": "फोटो",
+    "photos": "फोटो",
+    "picture": "तस्वीर",
+    "pictures": "तस्वीरें",
+    "tasveer": "तस्वीर",
+    "tasvir": "तस्वीर",
+    "gallery": "गैलरी",
+    "upload": "अपलोड",
+    "attach": "अटैच",
+    "download": "डाउनलोड",
+    "save": "सेव",  # we map phrases below to डाउनलोड where needed
+
+    # 🖼️ Scoped Pokémon image commands (exact phrases → Hindi)
+    "upload pokemon image": "पोकेमोन इमेज अपलोड",
+    "upload pokemon images": "कई पोकेमोन इमेज अपलोड",
+    "add pokemon image": "पोकेमोन इमेज जोड़ो",
+    "add pokemon images": "कई पोकेमोन इमेज जोड़ो",
+    "attach pokemon image": "पोकेमोन इमेज अटैच",
+    "attach pokemon images": "पोकेमोन इमेज अटैच",
+    "show pokemon image": "पोकेमोन तस्वीर दिखाओ",
+    "set image for pokemon": "पोकेमोन इमेज सेट करो",
+    "add image to pokemon": "पोकेमोन की तस्वीर जोड़ो",
+    "download pokemon image": "पोकेमोन इमेज डाउनलोड",
+
+    # 🖼️ Generic gallery phrases (and Pokémon-scoped)
+    "open image gallery": "इमेज गैलरी खोलो",
+    "show image gallery": "इमेज गैलरी दिखाओ",
+    "open gallery": "गैलरी खोलो",
+    "show gallery": "गैलरी दिखाओ",
+    "gallery kholo": "गैलरी खोलो",
+    "gallery dikhao": "गैलरी दिखाओ",
+    "pokemon gallery": "पोकेमोन गैलरी",
+    "open pokemon gallery": "पोकेमोन गैलरी खोलो",
+    "show pokemon gallery": "पोकेमोन गैलरी दिखाओ",
+
+    # 🔽 Save/Download variants
+    "save image": "इमेज डाउनलोड",
+    "save images": "इमेज डाउनलोड",
+    "save photo": "फोटो डाउनलोड",
+    "save photos": "फोटो डाउनलोड",
+    "save picture": "तस्वीर डाउनलोड",
+    "save pictures": "तस्वीरें डाउनलोड",
+    "download image": "इमेज डाउनलोड",
+    "download images": "इमेज डाउनलोड",
+    "download photo": "फोटो डाउनलोड",
+    "download photos": "फोटो डाउनलोड",
+    "download picture": "तस्वीर डाउनलोड",
+    "download pictures": "तस्वीरें डाउनलोड",
+
+    # 👥 Team
+    "team": "टीम",
+    "team dikhayo": "टीम दिखाओ",
+    "list team": "टीम दिखाओ",
+    "show team": "टीम दिखाओ",
+    "add to team": "टीम में जोड़ो",
+    "add pokemon to team": "टीम में जोड़ो",
+    "team me jodo": "टीम में जोड़ो",
+    "remove from team": "टीम से हटाओ",
+    "delete from team": "टीम से हटाओ",
+    "team se hatao": "टीम से हटाओ",
+    "upgrade team": "टीम अपग्रेड",
+    "set team": "टीम सेट",
+    "team level set": "टीम लेवल सेट",
+    "team member level": "टीम सदस्य लेवल",
+    "team average level": "टीम का औसत लेवल",
+    "average team level": "टीम का औसत लेवल",
+    "team avg level": "टीम का औसत लेवल",
+    "avg": "औसत",
+
+    # 🧑‍🏫 Trainer
+    "trainer": "ट्रेनर",
+    "trainer profile": "ट्रेनर प्रोफ़ाइल",
+    "my trainer profile": "मेरा ट्रेनर प्रोफ़ाइल",
+    "trainer profile dikhao": "ट्रेनर प्रोफ़ाइल दिखाओ",
+    "trainer nickname": "ट्रेनर निकनेम",
+    "trainer nickname is": "ट्रेनर निकनेम है",
+    "nickname is": "निकनेम है",
+    "location is": "लोकेशन है",
+    "city is": "शहर है",
+    "place is": "स्थान है",
+    "pronouns are": "प्रोनाउन्स हैं",
+    "pronoun is": "प्रोनाउन्स है",
+
+    # 📥 CSV / import
+    "import": "इम्पोर्ट",
+    "csv": "CSV",
+    "pokedex import": "पोकेडेक्स इम्पोर्ट",
+    "import pokedex from csv": "CSV से पोकेडेक्स इम्पोर्ट",
+    "upload csv": "CSV अपलोड",
+    "import csv": "CSV इम्पोर्ट",
+    "csv import": "CSV इम्पोर्ट",
+    "csv se import": "CSV से इम्पोर्ट",
+    "csv se add": "CSV से जोड़ो",
+    "add from csv": "CSV से जोड़ो",
+    "import pokemon csv": "पोकेमोन CSV इम्पोर्ट",
+    "pokemon csv import": "पोकेमोन CSV इम्पोर्ट",
+}
+
+# 🔗 Merge: physics first (intent/colloquial), then chemistry, then Pokémon
 hinglish_map.update(PHYSICS_HINGLISH_MAP)
 hinglish_map.update(PHYSICS_ROMAN_HI_MAP)
 hinglish_map.update(CHEM_HINGLISH_MAP)
-
+hinglish_map.update(POKEMON_HINGLISH_MAP)
+hinglish_map.update(POKEMON_EXTRAS_MAP)
 
 # 🔧 Precompile patterns (longest keys first)
 _PATTERNS = [
     (re.compile(r'\b' + re.escape(k) + r'\b'), v)
     for k, v in sorted(hinglish_map.items(), key=lambda kv: len(kv[0]), reverse=True)
 ]
-
 
 def normalize_hinglish(command: str) -> str:
     """Normalize common Hinglish phrases to Hindi (Devanagari).

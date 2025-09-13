@@ -1,19 +1,19 @@
-; Inno Setup script for NOVA (Windows)
+; Inno Setup script for Nova (Windows)
 
-#define MyAppName "NOVA"
+#define MyAppName "Nova"
 
 ; Prefer CI-provided version (APPVER). If missing, try EXE file version; else fallback.
 #define MyAppVersion GetEnv("APPVER")
 #if MyAppVersion == ""
-  #if FileExists("dist\\NOVA\\NOVA.exe")
-    #define MyAppVersion GetVersionNumbersString("dist\\NOVA\\NOVA.exe")
+  #if FileExists("dist\\Nova\\Nova.exe")
+    #define MyAppVersion GetVersionNumbersString("dist\\Nova\\Nova.exe")
   #else
     #define MyAppVersion "0.0.0"
   #endif
 #endif
 
-#define MyAppPublisher "NOVA"
-#define MyAppExeName "NOVA.exe"
+#define MyAppPublisher "Nova"
+#define MyAppExeName "Nova.exe"
 
 [Setup]
 ; ---- 64-bit install to Program Files (not x86) ----
@@ -30,12 +30,19 @@ AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 
-; Install path (explicitly 64-bit Program Files)
-DefaultDirName={pf64}\NOVA
-DefaultGroupName=NOVA
+; Use the crisp app icon for the installer/uninstaller UI
+SetupIconFile=assets\nova_icon_big.ico
+
+; Install path
+; NOTE: If you already shipped versions that installed to {pf64}\NOVA,
+; keeping the same AppId means upgrades will default to the OLD dir.
+; Change here to {pf64}\Nova for fresh installs; upgrades will still
+; stick to the existing dir automatically.
+DefaultDirName={pf64}\Nova
+DefaultGroupName=Nova
 
 ; Uninstaller icon in Apps & Features
-UninstallDisplayIcon={app}\NOVA\NOVA.exe
+UninstallDisplayIcon={app}\Nova\Nova.exe
 
 ; Output
 OutputDir=dist\installer
@@ -52,22 +59,23 @@ DisableProgramGroupPage=yes
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
-; Install the portable PyInstaller folder under {app}\NOVA
-; (this includes NOVA.exe and NovaTray.exe)
-Source: "dist\NOVA\*"; DestDir: "{app}\NOVA"; Flags: recursesubdirs createallsubdirs ignoreversion
+; Install the portable PyInstaller folder under {app}\Nova
+; (this includes Nova.exe and "Nova Tray.exe")
+Source: "dist\Nova\*"; DestDir: "{app}\Nova"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-; Start Menu shortcuts (both will be searchable):
-Name: "{autoprograms}\NOVA";      Filename: "{app}\NOVA\NOVA.exe"
-Name: "{autoprograms}\Nova Tray"; Filename: "{app}\NOVA\NovaTray.exe"
+; Start Menu shortcuts (user-visible labels)
+Name: "{autoprograms}\Nova";      Filename: "{app}\Nova\Nova.exe"
+Name: "{autoprograms}\Nova Tray"; Filename: "{app}\Nova\Nova Tray.exe"
 ; Desktop shortcut (main app only)
-Name: "{autodesktop}\NOVA";       Filename: "{app}\NOVA\NOVA.exe"
+Name: "{autodesktop}\Nova";       Filename: "{app}\Nova\Nova.exe"
 
 [Registry]
 ; Auto-start Nova Tray at user login (per-user)
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Nova Tray"; ValueData: """{app}\NOVA\NovaTray.exe"""; Flags: uninsdeletevalue
+; Extra quotes ensure correct path with the space in "Nova Tray.exe"
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Nova Tray"; ValueData: """{app}\Nova\Nova Tray.exe"""; Flags: uninsdeletevalue
 
 [Run]
 ; Start the tray immediately so the taskbar icon is visible right after install.
 ; 'runasoriginaluser' ensures it runs as the invoking user even though installer runs elevated.
-Filename: "{app}\NOVA\NovaTray.exe"; Flags: nowait postinstall skipifsilent runasoriginaluser
+Filename: "{app}\Nova\Nova Tray.exe"; Flags: nowait postinstall skipifsilent runasoriginaluser

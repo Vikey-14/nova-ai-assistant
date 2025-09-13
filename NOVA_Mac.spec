@@ -38,12 +38,12 @@ def add_tree(rel_path: str) -> None:
             dst = os.path.relpath(str(f_abs.parent), str(base_abs))
         datas.append((str(f_abs), dst))
 
-# Project folders
-for top in ["assets", "data", "handlers", "logs"]:
+# Project folders (now includes macbin so brightness gets bundled)
+for top in ["assets", "data", "handlers", "logs", "macbin"]:
     add_tree(top)
 
 # Root-level single files
-for fn in ["settings.json", "curiosity_data.json", "utils.py"]:
+for fn in ["settings.json", "curiosity_data.json", "utils.py", "hashed.txt"]:  # ← ADDED hashed.txt
     p = BASE / fn
     if p.exists():
         datas.append((str(p), "."))

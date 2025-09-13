@@ -3,22 +3,10 @@
 """
 Cross-platform adapter for Nova.
 One tiny API that main.py / tray_app.py can call without caring about the OS.
-
-Public surface (use these):
-    get_backend() -> Backend
-Backend interface:
-    - user_data_dir() -> Path
-    - launch_main_app() -> bool
-    - is_main_running() -> bool
-    - bring_to_front() -> bool
-    - hide_window() -> bool
-    - close_window() -> bool
-    - install_autostart(tray: bool = True) -> bool
-    - uninstall_autostart(tray: bool = True) -> bool
 """
 
 from __future__ import annotations
-import os, sys, platform, subprocess, time, shlex, json
+import os, sys, platform, subprocess, shlex
 from pathlib import Path
 
 try:
@@ -41,8 +29,9 @@ def _main_candidates() -> list[Path]:
     """
     cands: list[Path] = []
 
-    # Windows / Linux standalone exe names
-    for name in ("NOVA.exe", "Nova.exe", "NOVA", "Nova"):
+    # Windows / Linux standalone exe names (ONLY the correct branding)
+    # (Intentionally DO NOT include "NOVA.exe" or "NOVA")
+    for name in ("Nova.exe", "Nova"):
         cands += [EXE_DIR / name, APP_DIR / name]
 
     # macOS app bundle (Nova.app)
@@ -68,14 +57,15 @@ def _main_candidates() -> list[Path]:
 # ---------- base backend ----------
 
 class Backend:
-    app_name = "Nova"
+    # What users see in menus / titles:
+    app_name  = "Nova"
+    # Internal token for Windows Run key; user sees “Nova Tray” via file version metadata:
     tray_name = "NovaTray"
 
     # ---- filesystem
     def user_data_dir(self) -> Path:
         """OS-appropriate per-user app data folder: .../Nova"""
         try:
-            # Try platformdirs if available
             from platformdirs import user_data_dir as p_ud
             return Path(p_ud(self.app_name, False)).resolve()
         except Exception:
@@ -104,6 +94,7 @@ class Backend:
 
     def _looks_like_our_binary(self, p) -> bool:
         try:
+            # Keep it generic; this check doesn't influence branding/launch choice
             name = (p.info.get("name") or p.name() or "").lower()
             return name in {"nova", "nova.exe"}
         except Exception:
@@ -111,8 +102,6 @@ class Backend:
 
     def is_main_running(self) -> bool:
         if psutil is None:
-            # Best-effort fallback: check any candidate executable exists + hope the OS shows it,
-            # but without psutil we can't be certain. Return False so watchdog behaves safely.
             return False
         try:
             for p in psutil.process_iter(["name", "cmdline"]):
@@ -140,29 +129,22 @@ class Backend:
         pyw = py.with_name("pythonw.exe") if os.name == "nt" else py
         for cand in _main_candidates():
             if cand.name == "main.py" and cand.exists():
-                try:
-                    subprocess.Popen([str(pyw), str(cand)], cwd=str(cand.parent), close_fds=True)
-                    return True
-                except Exception:
+                for interp in (pyw, py):
                     try:
-                        subprocess.Popen([str(py), str(cand)], cwd=str(cand.parent), close_fds=True)
+                        subprocess.Popen([str(interp), str(cand)], cwd=str(cand.parent), close_fds=True)
                         return True
                     except Exception:
                         continue
         return False
 
     # ---- window control (safe defaults)
-    def bring_to_front(self) -> bool:  # pragma: no cover - OS-specific
+    def bring_to_front(self) -> bool:  # pragma: no cover
         return False
 
-    def hide_window(self) -> bool:  # pragma: no cover - OS-specific
+    def hide_window(self) -> bool:  # pragma: no cover
         return False
 
-    def close_window(self) -> bool:  # pragma: no cover - OS-specific
-        """
-        Default: try graceful terminate via psutil, as a last resort.
-        On Windows/macOS/Linux subclasses we override with real window close.
-        """
+    def close_window(self) -> bool:  # pragma: no cover
         if psutil is None:
             return False
         ok = False
@@ -170,7 +152,7 @@ class Backend:
             for p in psutil.process_iter(["name", "cmdline"]):
                 if self._looks_like_our_binary(p) or self._looks_like_our_python(p):
                     try:
-                        p.terminate()  # polite
+                        p.terminate()
                         ok = True
                     except Exception:
                         pass
@@ -214,7 +196,8 @@ class WindowsBackend(Backend):
         EnumWindows(EnumWindowsProc(foreach), 0)
         return items
 
-    def _title_is_nova(self, title: str) -> bool:
+    @staticmethod
+    def _title_is_nova(title: str) -> bool:
         t = (title or "").strip().lower()
         return t == "nova" or t.startswith("nova - ")
 
@@ -231,7 +214,6 @@ class WindowsBackend(Backend):
         hwnd = self._find_hwnd()
         if not hwnd:
             return False
-        import ctypes
         SW_RESTORE = 9
         self._user32.ShowWindow(hwnd, SW_RESTORE)
         self._user32.SetForegroundWindow(hwnd)
@@ -241,7 +223,6 @@ class WindowsBackend(Backend):
         hwnd = self._find_hwnd()
         if not hwnd:
             return False
-        import ctypes
         SW_HIDE = 0
         self._user32.ShowWindow(hwnd, SW_HIDE)
         return True
@@ -264,7 +245,7 @@ class WindowsBackend(Backend):
                 0, winreg.KEY_SET_VALUE)
             target = None
             if tray:
-                for name in ("NovaTray.exe", "nova_tray.exe", "tray_app.exe", "Nova Tray.exe"):
+                for name in ("Nova Tray.exe", "NovaTray.exe", "tray_app.exe", "nova_tray.exe"):
                     p = EXE_DIR / name
                     if p.exists():
                         target = str(p)
@@ -289,10 +270,12 @@ class WindowsBackend(Backend):
                 winreg.HKEY_CURRENT_USER,
                 r"Software\Microsoft\Windows\CurrentVersion\Run",
                 0, winreg.KEY_ALL_ACCESS)
-            try:
-                winreg.DeleteValue(key, self.tray_name if tray else self.app_name)
-            except Exception:
-                pass
+        # Remove both names just in case
+            for value_name in (self.tray_name if tray else self.app_name,):
+                try:
+                    winreg.DeleteValue(key, value_name)
+                except Exception:
+                    pass
             winreg.CloseKey(key)
             return True
         except Exception:
@@ -300,28 +283,24 @@ class WindowsBackend(Backend):
 
 
 # ---------- Linux backend ----------
-# platform_adapter.py (LinuxBackend)
 class LinuxBackend(Backend):
     def close_window(self) -> bool:
-        # Prefer WM_CLASS for reliable targeting (matches `-x nova`)
+        # Prefer WM_CLASS (lowercase usually ok)
+        for target in ("nova", "Nova"):
+            try:
+                subprocess.run(["wmctrl", "-x", "-c", target],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
+                return True
+            except Exception:
+                pass
+        # Fallback: by window title (brand = "Nova")
         try:
-            subprocess.run(
-                ["wmctrl", "-x", "-c", "nova"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-            )
+            subprocess.run(["wmctrl", "-c", "Nova - AI Assistant"],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
             return True
         except Exception:
             pass
-        # Fallback: by title (your Tk title is "NOVA - AI Assistant")
-        try:
-            subprocess.run(
-                ["wmctrl", "-c", "NOVA - AI Assistant"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-            )
-            return True
-        except Exception:
-            pass
-        # Last resort: polite terminate (may skip goodbye)
+        # Last resort: polite terminate
         return super().close_window()
 
     def install_autostart(self, tray: bool = True) -> bool:
@@ -330,7 +309,7 @@ class LinuxBackend(Backend):
             autostart.mkdir(parents=True, exist_ok=True)
             target = None
             if tray:
-                for name in ("NovaTray", "nova_tray", "tray_app", "Nova Tray"):
+                for name in ("NovaTray", "Nova Tray", "nova_tray", "tray_app"):
                     for ext in (".exe", "",):
                         p = EXE_DIR / f"{name}{ext}"
                         if p.exists():
@@ -369,45 +348,37 @@ class LinuxBackend(Backend):
 # ---------- macOS backend ----------
 class MacBackend(Backend):
     def bring_to_front(self) -> bool:
-        # If bundled app exists, activate it; otherwise best-effort activate Python process.
         app = EXE_DIR / "Nova.app"
         if app.exists():
             try:
-                subprocess.run(
-                    ["osascript", "-e", 'tell application "Nova" to activate'],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run(["osascript", "-e", 'tell application "Nova" to activate'],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 return True
             except Exception:
                 pass
-        # Fallback: try to make Python frontmost (works in some setups)
         try:
-            subprocess.run(
-                ["osascript", "-e",
-                 'tell application "System Events" to set frontmost of process "Python" to true'],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.run(["osascript", "-e",
+                            'tell application "System Events" to set frontmost of process "Python" to true'],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return True
         except Exception:
             return False
 
     def hide_window(self) -> bool:
-        # No generic hide; users typically close/minimize the Tk window from the app itself.
         return False
 
     def close_window(self) -> bool:
-        # If bundled app exists, quit it; else psutil terminate fallback.
         app = EXE_DIR / "Nova.app"
         if app.exists():
             try:
-                subprocess.run(
-                    ["osascript", "-e", 'tell application "Nova" to quit'],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                subprocess.run(["osascript", "-e", 'tell application "Nova" to quit'],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 return True
             except Exception:
                 pass
         return super().close_window()
 
     def install_autostart(self, tray: bool = True) -> bool:
-        # Create a LaunchAgent plist for the tray (recommended)
         try:
             launch_agents = Path.home() / "Library" / "LaunchAgents"
             launch_agents.mkdir(parents=True, exist_ok=True)
@@ -416,18 +387,18 @@ class MacBackend(Backend):
 
             target = None
             if tray:
-                for name in ("NovaTray", "nova_tray", "tray_app", "Nova Tray"):
-                    for ext in (".exe", "",):
-                        p = EXE_DIR / f"{name}{ext}"
-                        if p.exists():
-                            target = [str(p)]
-                            break
-                # if inside NovaTray.app: ProgramArguments should point to its binary
-                app_bin = EXE_DIR / "NovaTray.app" / "Contents" / "MacOS" / "NovaTray"
-                if not target and app_bin.exists():
+                # Prefer inside app bundle
+                app_bin = EXE_DIR / "Nova Tray.app" / "Contents" / "MacOS" / "NovaTray"
+                if app_bin.exists():
                     target = [str(app_bin)]
+                else:
+                    for name in ("NovaTray", "Nova Tray", "nova_tray", "tray_app"):
+                        for ext in (".exe", "",):
+                            p = EXE_DIR / f"{name}{ext}"
+                            if p.exists():
+                                target = [str(p)]
+                                break
             if not target:
-                # fallback to main
                 for cand in _main_candidates():
                     if cand.exists():
                         target = [str(cand)]
@@ -441,30 +412,16 @@ class MacBackend(Backend):
                 "KeepAlive": False,
                 "ProgramArguments": target,
                 "WorkingDirectory": str(EXE_DIR),
-                "StandardErrorPath": str(self.user_data_dir() / f"{label}.err.log"),
-                "StandardOutPath": str(self.user_data_dir() / f"{label}.out.log"),
             }
             plist.write_text(_plist(payload), encoding="utf-8")
-            # load it immediately
-            subprocess.run(["launchctl", "load", str(plist)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            return True
-        except Exception:
-            return False
-
-    def uninstall_autostart(self, tray: bool = True) -> bool:
-        try:
-            label = "com.nova.tray" if tray else "com.nova.app"
-            plist = Path.home() / "Library" / "LaunchAgents" / f"{label}.plist"
-            subprocess.run(["launchctl", "unload", str(plist)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            if plist.exists():
-                plist.unlink()
+            subprocess.run(["launchctl", "load", str(plist)],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             return True
         except Exception:
             return False
 
 
 def _plist(d: dict) -> str:
-    # Small, dependency-free plist writer (launchd is lenient)
     import xml.sax.saxutils as su
     def k(v: str) -> str: return f"<key>{su.escape(v)}</key>"
     def s(v: str) -> str: return f"<string>{su.escape(v)}</string>"
@@ -487,7 +444,6 @@ def _plist(d: dict) -> str:
     )
 
 # ---------- factory ----------
-
 def get_backend() -> Backend:
     sysname = platform.system().lower()
     if "windows" in sysname:

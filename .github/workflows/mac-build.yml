@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: macOS build (.app + DMG + PKG)
 
 on:
@@ -13,11 +14,21 @@ jobs:
   build:
     strategy:
       matrix:
-        os: [macos-13, macos-14]   # 13 = Intel (x86_64), 14 = Apple Silicon (arm64)
+        os: [macos-13, macos-14] # 13 = Intel (x86_64), 14 = Apple Silicon (arm64)
     runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
+
+      # Speed up pip installs on macOS
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/Library/Caches/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
       - uses: actions/setup-python@v5
         with:
@@ -47,6 +58,15 @@ jobs:
           python -m pip install --upgrade pip wheel
           pip install -r requirements.macos.txt pyinstaller edge-tts gTTS playsound
           pip cache purge || true
+
+      # Bundle 'brightness' so users don't have to install anything
+      - name: Install and stage brightness (bundle into app)
+        run: |
+          set -euo pipefail
+          brew install brightness
+          mkdir -p macbin
+          cp "$(brew --prefix)/bin/brightness" macbin/brightness
+          chmod +x macbin/brightness
 
       - name: Build Piper from source (per-arch)
         run: |
@@ -111,7 +131,6 @@ jobs:
           ls -la third_party/piper/macos-x64  || true
           ls -la third_party/piper/macos-arm64 || true
 
-      # NEW: fetch the 5 Piper models if they aren't committed
       - name: Download Piper models (if missing)
         run: |
           set -euo pipefail
@@ -151,7 +170,6 @@ jobs:
             BINDIR="third_party/piper/macos-x64"
           fi
 
-          # Point dynamic loader + phonemizer + espeak data at our bundle
           export DYLD_LIBRARY_PATH="${BINDIR}:${DYLD_LIBRARY_PATH:-}"
           [ -f "${BINDIR}/libpiper_phonemize.dylib" ] && export PIPER_PHONEMIZE_LIBRARY="${BINDIR}/libpiper_phonemize.dylib"
           export ESPEAK_DATA="${BINDIR}/espeak-ng-data"
@@ -230,11 +248,32 @@ jobs:
           cp "$SRC" icons/nova.iconset/icon_512x512@2x.png
           iconutil -c icns icons/nova.iconset -o icons/nova.icns
 
+      # Write hashed.txt from secret (already hashed values)
+      - name: Create hashed.txt from secret
+        env:
+          HASHED_NAME_BLOCKLIST: ${{ secrets.HASHED_NAME_BLOCKLIST }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HASHED_NAME_BLOCKLIST:-}" ]; then
+            echo "::error::HASHED_NAME_BLOCKLIST secret not set or empty"
+            exit 1
+          fi
+          printf '%s\n' "$HASHED_NAME_BLOCKLIST" > hashed.txt
+          echo "hashed.txt lines: $(wc -l < hashed.txt)"
+
       - name: Build apps with PyInstaller
         run: |
           set -euo pipefail
           pyinstaller --clean NOVA_Mac.spec
           rm -rf build
+
+      - name: Verify bundled brightness
+        run: |
+          set -euo pipefail
+          B="dist/Nova.app/Contents/MacOS/macbin/brightness"
+          ls -l "$B"
+          file "$B" || true
+          "$B" -l || true
 
       - name: Strip binaries inside .app bundles (shrink)
         run: |
@@ -327,8 +366,7 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    # FIXED: correct tag gate
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags_v') # unchanged
     permissions:
       contents: write
     steps:
@@ -363,7 +401,7 @@ jobs:
           dmg=$(ls -1 macos-14/Nova_*_mac.dmg macos-13/Nova_*_mac.dmg 2>/dev/null | head -n1); cp "$dmg" Nova_mac.dmg
           shasum -a 256 */Nova_*_mac.* Nova_mac.* 2>/dev/null > SHA256SUMS.txt || true
 
-      - name: Prepare release body (no linter warnings)
+      - name: Prepare release body 
         run: |
           set -euo pipefail
           cat > release_assets/RELEASE_BODY.md <<'EOF'

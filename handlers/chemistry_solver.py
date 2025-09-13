@@ -30,8 +30,8 @@ CALC_INTENTS = {
     "molarity_molality"
 }
 
-# === NEW: canonical table location inside packaged app ===
-# dist/NOVA/data/chemistry_table.json (onedir) — dev: <project>/data/chemistry_table.json
+# Packaged (PyInstaller): <bundle>/data/chemistry_table.json
+# Dev (source checkout):  <project_root>/data/chemistry_table.json
 CHEM_JSON_PATH = str(data_path("chemistry_table.json"))
 
 # Upstream fallback (when your local fetch script isn’t present)
@@ -415,7 +415,7 @@ def _load_dataset_if_needed():
     if _ELEMENTS:
         return  # already loaded
 
-    # ✅ resolve to packaged data folder (dev: <repo>/data, build: dist/NOVA/data)
+    # ✅ resolve to packaged data folder (dev: <repo>/data, build: dist/Nova/data)
     chem_json = data_path("chemistry_table.json")
     if not chem_json.exists():
         raise FileNotFoundError(f"chemistry_table.json not found at {chem_json}")
