@@ -9,8 +9,6 @@ Use from main.py and tray_app.py so we don't duplicate:
   - is_tray_alive()
   - ensure_tray_running()
   - notify_tray_user_exit()
-
-No imports from app modules here (keeps it cycle-free).
 """
 
 from __future__ import annotations
@@ -44,17 +42,23 @@ def _tray_candidates() -> list[Path]:
     Order matters; first that exists is launched.
     """
     names = [
-        # common Windows / Linux names
-        "NovaTray.exe", "Nova Tray.exe", "nova_tray.exe", "tray_app.exe",
-        "NovaTray", "nova_tray", "tray_app",
+        # common Windows / Linux names (prefer the spaced one first)
+        "Nova Tray.exe", "NovaTray.exe", "nova_tray.exe", "tray_app.exe",
+        "Nova Tray", "NovaTray", "nova_tray", "tray_app",
     ]
     cands: list[Path] = []
     for base in (EXE_DIR, APP_DIR, Path(__file__).parent):
         for n in names:
             cands.append(base / n)
 
-    # macOS app bundle + internal binary
+    # macOS app bundles + internal binaries (support both spellings)
     cands += [
+        # spaced bundle
+        EXE_DIR / "Nova Tray.app",
+        APP_DIR / "Nova Tray.app",
+        EXE_DIR / "Nova Tray.app" / "Contents" / "MacOS" / "NovaTray",
+        APP_DIR / "Nova Tray.app" / "Contents" / "MacOS" / "NovaTray",
+        # no-space bundle (legacy)
         EXE_DIR / "NovaTray.app",
         APP_DIR / "NovaTray.app",
         EXE_DIR / "NovaTray.app" / "Contents" / "MacOS" / "NovaTray",
@@ -94,7 +98,10 @@ def send_tray_command(cmd: str, *, timeout: float = 0.6) -> tuple[bool, str]:
 
 def is_tray_alive(*, timeout: float = 0.6) -> bool:
     ok, reply = send_tray_command("HELLO", timeout=timeout)
-    return ok and reply == "NOVA_TRAY"
+    if not ok:
+        return False
+    token = (reply or "").strip().upper().replace("-", " ").replace("_", " ")
+    return token in {"NOVA TRAY", "OK"}
 
 # ---------- launcher ----------
 def _spawn_tray_once() -> bool:
@@ -102,9 +109,9 @@ def _spawn_tray_once() -> bool:
         if not cand.exists():
             continue
         try:
-            # macOS .app bundle: use "open -a"
+            # macOS .app bundle: open by path (no -a)
             if _is_macos() and cand.suffix.lower() == ".app":
-                subprocess.Popen(["open", "-a", str(cand)], close_fds=True)
+                subprocess.Popen(["open", str(cand)], close_fds=True)
                 return True
 
             # Python script fallback
@@ -145,7 +152,7 @@ def ensure_tray_running(*, wait_seconds: float = 2.5) -> bool:
 
 def notify_tray_user_exit() -> None:
     """
-    Tell the tray "BYE" so it sets a cooldown sentinel and doesn’t relaunch Nova immediately.
+    Tell the tray "BYE" so it can set a cooldown sentinel and not relaunch Nova immediately.
     Fire-and-forget; ignore errors (e.g., tray isn’t running).
     """
     try:
@@ -153,8 +160,8 @@ def notify_tray_user_exit() -> None:
     except Exception:
         pass
 
-# Optional tiny helpers if you like them:
-def tray_open():              return send_tray_command("OPEN")[0]
-def tray_tip():               return send_tray_command("TIP")[0]
-def tray_open_and_tip():      return send_tray_command("OPEN_AND_TIP")[0]
-def tray_hello() -> str:      return send_tray_command("HELLO")[1]
+# Convenience wrappers
+def tray_open():         return send_tray_command("OPEN")[0]
+def tray_tip():          return send_tray_command("TIP")[0]
+def tray_open_and_tip(): return send_tray_command("OPEN_AND_TIP")[0]
+def tray_hello() -> str: return send_tray_command("HELLO")[1]

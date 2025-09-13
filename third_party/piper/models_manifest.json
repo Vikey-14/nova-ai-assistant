@@ -1,0 +1,36 @@
+{
+  "exe": {
+    "windows": "third_party/piper/windows-x64/piper.exe",
+    "linux-x64": "third_party/piper/linux-x64/piper",
+    "linux-arm64": "third_party/piper/linux-arm64/piper",
+    "darwin-x64": "third_party/piper/macos-x64/piper",
+    "darwin-arm64": "third_party/piper/macos-arm64/piper"
+  },
+  "models": {
+    "en-US": {
+      "model": "third_party/piper/models/en_US-ryan-medium.onnx",
+      "config": "third_party/piper/models/en_US-ryan-medium.onnx.json",
+      "speaker": 0
+    },
+    "hi-IN": {
+      "model": "third_party/piper/models/hi_IN-priyamvada-medium.onnx",
+      "config": "third_party/piper/models/hi_IN-priyamvada-medium.onnx.json",
+      "speaker": 0
+    },
+    "fr-FR": {
+      "model": "third_party/piper/models/fr_FR-siwis-medium.onnx",
+      "config": "third_party/piper/models/fr_FR-siwis-medium.onnx.json",
+      "speaker": 0
+    },
+    "es-ES": {
+      "model": "third_party/piper/models/es_ES-sharvard-medium.onnx",
+      "config": "third_party/piper/models/es_ES-sharvard-medium.onnx.json",
+      "speaker": 1
+    },
+    "de-DE": {
+      "model": "third_party/piper/models/de_DE-kerstin-low.onnx",
+      "config": "third_party/piper/models/de_DE-kerstin-low.onnx.json",
+      "speaker": 0
+    }
+  }
+}

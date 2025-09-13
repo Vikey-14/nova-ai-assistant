@@ -1,0 +1,13 @@
+{
+  "typeCheckingMode": "off",
+  "reportOptionalMemberAccess": "none",
+  "reportAttributeAccessIssue": "none",
+  "exclude": [
+    "build",
+    "dist",
+    "dist_linux",
+    "**/__pycache__",
+    ".venv",
+    ".venv_wsl"
+  ]
+}

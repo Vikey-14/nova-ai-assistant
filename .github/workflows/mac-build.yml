@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: macOS build (.app + DMG + PKG)
 
 on:
@@ -11,9 +12,23 @@ defaults:
 
 jobs:
   build:
-    runs-on: macos-13
+    strategy:
+      matrix:
+        os: [macos-13, macos-14] # 13 = Intel (x86_64), 14 = Apple Silicon (arm64)
+    runs-on: ${{ matrix.os }}
+
     steps:
       - uses: actions/checkout@v4
+
+      # Speed up pip installs on macOS
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~/Library/Caches/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
 
       - uses: actions/setup-python@v5
         with:
@@ -22,7 +37,20 @@ jobs:
       - name: Homebrew deps
         run: |
           set -euo pipefail
-          brew install portaudio ffmpeg
+          brew update
+          # core tools + Piper deps (do NOT install cmake here)
+          brew install jq ffmpeg portaudio ninja pkg-config espeak-ng onnxruntime
+          cmake --version || true
+
+      - name: Fix pinned cmake on runner
+        run: |
+          set -euxo pipefail
+          if brew list --versions cmake >/dev/null 2>&1; then
+            brew uninstall --ignore-dependencies cmake || true
+            brew cleanup -s || true
+          fi
+          brew install cmake
+          cmake --version
 
       - name: Python deps
         run: |
@@ -31,23 +59,207 @@ jobs:
           pip install -r requirements.macos.txt pyinstaller edge-tts gTTS playsound
           pip cache purge || true
 
+      # Bundle 'brightness' so users don't have to install anything
+      - name: Install and stage brightness (bundle into app)
+        run: |
+          set -euo pipefail
+          brew install brightness
+          mkdir -p macbin
+          cp "$(brew --prefix)/bin/brightness" macbin/brightness
+          chmod +x macbin/brightness
+
+      - name: Build Piper from source (per-arch)
+        run: |
+          set -euo pipefail
+
+          rm -rf /tmp/piper_src /tmp/piper_build
+          git clone --depth=1 https://github.com/rhasspy/piper.git /tmp/piper_src
+
+          cmake -S /tmp/piper_src -B /tmp/piper_build -DCMAKE_BUILD_TYPE=Release
+          cmake --build /tmp/piper_build --config Release -j
+
+          BIN="/tmp/piper_build/piper"
+          file "$BIN" || true
+
+          ARCH="$(uname -m)"
+          if [ "$ARCH" = "arm64" ]; then
+            DEST="third_party/piper/macos-arm64"
+          else
+            DEST="third_party/piper/macos-x64"
+          fi
+          mkdir -p "$DEST"
+
+          # Piper binary
+          cp -av "$BIN" "$DEST/piper"
+          chmod +x "$DEST/piper"
+
+          # Copy Piper-built dylibs (phonemize + espeak-ng) – MUST match the build
+          find /tmp/piper_build -type f \( -name 'libpiper*.dylib' -o -name 'libespeak*.dylib' \) -exec cp -av {} "$DEST"/ \; || true
+
+          # Create unversioned symlinks so dlopen by basename also works
+          set +e
+          for d in "$DEST"/libpiper_phonemize*.dylib; do
+            [ -f "$d" ] || continue
+            ln -sf "$(basename "$d")" "$DEST/libpiper_phonemize.dylib"
+          done
+          for d in "$DEST"/libespeak-ng*.dylib; do
+            [ -f "$d" ] || continue
+            ln -sf "$(basename "$d")" "$DEST/libespeak-ng.dylib"
+          done
+          set -e
+
+          # ONNX runtime from Homebrew
+          ONNX_PREFIX="$(brew --prefix onnxruntime)"
+          cp -av "$ONNX_PREFIX"/lib/libonnxruntime*.dylib "$DEST"/ 2>/dev/null || true
+
+          # espeak-ng-data: prefer from build tree; fallback to Homebrew
+          if ! find /tmp/piper_build -type d -name espeak-ng-data -exec bash -lc 'cp -a "{}" "'"$DEST"'/espeak-ng-data"' \; | grep -q . ; then
+            ESPEAK_PREFIX="$(brew --prefix espeak-ng)"
+            cp -av "$ESPEAK_PREFIX"/share/espeak-ng-data "$DEST"/ 2>/dev/null || true
+          fi
+
+          echo "=== Contents of $DEST ==="
+          ls -la "$DEST"
+          echo "=== otool -L $DEST/piper ==="
+          otool -L "$DEST/piper" || true
+          echo "=== otool -L (phonemize/espeak libs) ==="
+          for d in "$DEST"/libpiper*.dylib "$DEST"/libespeak*.dylib; do [ -f "$d" ] && otool -L "$d"; done || true
+
+      - name: Ensure espeak-ng-data beside both mac Piper folders (noop if already bundled)
+        run: |
+          set -euo pipefail
+          ls -la third_party/piper/macos-x64  || true
+          ls -la third_party/piper/macos-arm64 || true
+
+      - name: Download Piper models (if missing)
+        run: |
+          set -euo pipefail
+          mkdir -p third_party/piper/models
+          base="https://huggingface.co/rhasspy/piper-voices/resolve/main"
+          fetch() { url="$1"; out="$2"; [ -s "$out" ] || curl -L --retry 3 -o "$out" "$url"; }
+
+          # EN (Ryan, medium)
+          fetch "$base/en/en_US/ryan/medium/en_US-ryan-medium.onnx"       third_party/piper/models/en_US-ryan-medium.onnx
+          fetch "$base/en/en_US/ryan/medium/en_US-ryan-medium.onnx.json" third_party/piper/models/en_US-ryan-medium.onnx.json
+          # HI (Priyamvada, medium)
+          fetch "$base/hi/hi_IN/priyamvada/medium/hi_IN-priyamvada-medium.onnx"       third_party/piper/models/hi_IN-priyamvada-medium.onnx
+          fetch "$base/hi/hi_IN/priyamvada/medium/hi_IN-priyamvada-medium.onnx.json" third_party/piper/models/hi_IN-priyamvada-medium.onnx.json
+          # FR (SIWIS, medium)
+          fetch "$base/fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx"       third_party/piper/models/fr_FR-siwis-medium.onnx
+          fetch "$base/fr/fr_FR/siwis/medium/fr_FR-siwis-medium.onnx.json" third_party/piper/models/fr_FR-siwis-medium.onnx.json
+          # ES (Sharvard, medium) — female with speaker=1
+          fetch "$base/es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx"       third_party/piper/models/es_ES-sharvard-medium.onnx
+          fetch "$base/es/es_ES/sharvard/medium/es_ES-sharvard-medium.onnx.json" third_party/piper/models/es_ES-sharvard-medium.onnx.json
+          # DE (Kerstin, low)
+          fetch "$base/de/de_DE/kerstin/low/de_DE-kerstin-low.onnx"       third_party/piper/models/de_DE-kerstin-low.onnx
+          fetch "$base/de/de_DE/kerstin/low/de_DE-kerstin-low.onnx.json" third_party/piper/models/de_DE-kerstin-low.onnx.json
+
+          ls -lh third_party/piper/models
+
+      - name: Piper smoke WAVs for all languages (artifact)
+        run: |
+          set -euo pipefail
+          set -x
+
+          ARCH="$(uname -m)"
+          if [ "$ARCH" = "arm64" ]; then
+            BIN="third_party/piper/macos-arm64/piper"
+            BINDIR="third_party/piper/macos-arm64"
+          else
+            BIN="third_party/piper/macos-x64/piper"
+            BINDIR="third_party/piper/macos-x64"
+          fi
+
+          export DYLD_LIBRARY_PATH="${BINDIR}:${DYLD_LIBRARY_PATH:-}"
+          [ -f "${BINDIR}/libpiper_phonemize.dylib" ] && export PIPER_PHONEMIZE_LIBRARY="${BINDIR}/libpiper_phonemize.dylib"
+          export ESPEAK_DATA="${BINDIR}/espeak-ng-data"
+          [ ! -d "$ESPEAK_DATA" ] && export ESPEAK_DATA="$(brew --prefix)/share/espeak-ng-data"
+
+          file "$BIN" || true
+          ls -lah "$BINDIR" || true
+          ls -lah third_party/piper/models || true
+
+          mkdir -p voice-smoke
+          pushd voice-smoke >/dev/null
+
+          make_wav () {
+            local m_rel="$1" c_rel="$2" s="$3" txt="$4" out="$5"
+            local BIN_ABS="$GITHUB_WORKSPACE/$BIN"
+            local M_ABS="$GITHUB_WORKSPACE/$m_rel"
+            local C_ABS="$GITHUB_WORKSPACE/$c_rel"
+            if [ -x "$BIN_ABS" ] && [ -f "$M_ABS" ] && [ -f "$C_ABS" ]; then
+              echo "$txt" | "$BIN_ABS" -m "$M_ABS" -c "$C_ABS" -s "$s" -f "$out" || true
+              if [ ! -s "$out" ]; then
+                newest="$(ls -1t *.wav 2>/dev/null | head -n1 || true)"
+                if [ -n "${newest:-}" ] && [ -f "$newest" ]; then
+                  mv -v "$newest" "$out"
+                fi
+              fi
+              if [ ! -s "$out" ]; then
+                echo "::error::Piper produced no audio for $out"
+                exit 1
+              fi
+            else
+              echo "::error::Missing model/config/bin for $out"
+              exit 1
+            fi
+          }
+
+          make_wav third_party/piper/models/fr_FR-siwis-medium.onnx       third_party/piper/models/fr_FR-siwis-medium.onnx.json       0 "Bonjour, je m’appelle Nova." fr.wav
+          make_wav third_party/piper/models/es_ES-sharvard-medium.onnx    third_party/piper/models/es_ES-sharvard-medium.onnx.json    1 "Hola, soy Nova." es.wav
+          make_wav third_party/piper/models/de_DE-kerstin-low.onnx        third_party/piper/models/de_DE-kerstin-low.onnx.json        0 "Hallo, ich bin Nova." de.wav
+          make_wav third_party/piper/models/hi_IN-priyamvada-medium.onnx  third_party/piper/models/hi_IN-priyamvada-medium.onnx.json  0 "नमस्ते, मैं नोवा हूँ।" hi.wav
+          make_wav third_party/piper/models/en_US-ryan-medium.onnx        third_party/piper/models/en_US-ryan-medium.onnx.json        0 "Hello, this is Nova." en.wav
+
+          ls -lh .
+          popd >/dev/null
+
+      - name: Upload voice smoke artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: voice-smoke-${{ runner.os }}-${{ runner.arch }}
+          path: voice-smoke/*.wav
+
+      - name: Quick mac system-voice test (English)
+        run: |
+          set -euo pipefail
+          say -o sysvoice_test.aiff "Hello from the mac system voice."
+          file sysvoice_test.aiff
+          ls -lh sysvoice_test.aiff
+
       - name: Derive APPVER from tag
         run: |
           echo "APPVER=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
 
-      - name: Make .icns from assets/nova_icon_256.png
+      - name: Make .icns from assets/nova_face.png
         run: |
           set -euo pipefail
           mkdir -p icons/nova.iconset
-          sips -z 16 16  assets/nova_icon_256.png --out icons/nova.iconset/icon_16x16.png
-          sips -z 32 32  assets/nova_icon_256.png --out icons/nova.iconset/icon_16x16@2x.png
-          sips -z 32 32  assets/nova_icon_256.png --out icons/nova.iconset/icon_32x32.png
-          sips -z 64 64  assets/nova_icon_256.png --out icons/nova.iconset/icon_32x32@2x.png
-          sips -z 128 128 assets/nova_icon_256.png --out icons/nova.iconset/icon_128x128.png
-          sips -z 256 256 assets/nova_icon_256.png --out icons/nova.iconset/icon_128x128@2x.png
-          cp assets/nova_icon_256.png icons/nova.iconset/icon_512x512.png
-          cp assets/nova_icon_256.png icons/nova.iconset/icon_512x512@2x.png
+          SRC="assets/nova_face.png"
+          sips -z 16 16 "$SRC" --out icons/nova.iconset/icon_16x16.png
+          sips -z 32 32 "$SRC" --out icons/nova.iconset/icon_16x16@2x.png
+          sips -z 32 32 "$SRC" --out icons/nova.iconset/icon_32x32.png
+          sips -z 64 64 "$SRC" --out icons/nova.iconset/icon_32x32@2x.png
+          sips -z 128 128 "$SRC" --out icons/nova.iconset/icon_128x128.png
+          sips -z 256 256 "$SRC" --out icons/nova.iconset/icon_128x128@2x.png
+          sips -z 256 256 "$SRC" --out icons/nova.iconset/icon_256x256.png
+          sips -z 512 512 "$SRC" --out icons/nova.iconset/icon_256x256@2x.png
+          sips -z 512 512 "$SRC" --out icons/nova.iconset/icon_512x512.png
+          cp "$SRC" icons/nova.iconset/icon_512x512@2x.png
           iconutil -c icns icons/nova.iconset -o icons/nova.icns
+
+      # Write hashed.txt from secret (already hashed values)
+      - name: Create hashed.txt from secret
+        env:
+          HASHED_NAME_BLOCKLIST: ${{ secrets.HASHED_NAME_BLOCKLIST }}
+        run: |
+          set -euo pipefail
+          if [ -z "${HASHED_NAME_BLOCKLIST:-}" ]; then
+            echo "::error::HASHED_NAME_BLOCKLIST secret not set or empty"
+            exit 1
+          fi
+          printf '%s\n' "$HASHED_NAME_BLOCKLIST" > hashed.txt
+          echo "hashed.txt lines: $(wc -l < hashed.txt)"
 
       - name: Build apps with PyInstaller
         run: |
@@ -55,11 +267,19 @@ jobs:
           pyinstaller --clean NOVA_Mac.spec
           rm -rf build
 
+      - name: Verify bundled brightness
+        run: |
+          set -euo pipefail
+          B="dist/Nova.app/Contents/MacOS/macbin/brightness"
+          ls -l "$B"
+          file "$B" || true
+          "$B" -l || true
+
       - name: Strip binaries inside .app bundles (shrink)
         run: |
           set -euo pipefail
-          if [ -d "dist/NOVA.app/Contents/MacOS" ]; then
-            find "dist/NOVA.app/Contents/MacOS" -type f -perm -111 -exec strip -x {} + || true
+          if [ -d "dist/Nova.app/Contents/MacOS" ]; then
+            find "dist/Nova.app/Contents/MacOS" -type f -perm -111 -exec strip -x {} + || true
           fi
           if [ -d "dist/Nova Tray.app/Contents/MacOS" ]; then
             find "dist/Nova Tray.app/Contents/MacOS" -type f -perm -111 -exec strip -x {} + || true
@@ -83,31 +303,31 @@ jobs:
           TMPDIR: ${{ env.TMPDIR }}
         run: |
           set -euo pipefail
-          mkdir -p "dist_mac/NOVA-${APPVER}"
-          cp -R "dist/NOVA.app"      "dist_mac/NOVA-${APPVER}/"
-          cp -R "dist/Nova Tray.app" "dist_mac/NOVA-${APPVER}/"
-          hdiutil create -volname "NOVA ${APPVER}" -srcfolder "dist_mac/NOVA-${APPVER}" -ov -format UDZO "NOVA_${APPVER}_mac.dmg"
+          APPVER="${APPVER:-0.0.0-ci}"
+          mkdir -p "dist_mac/Nova-${APPVER}"
+          cp -R "dist/Nova.app"      "dist_mac/Nova-${APPVER}/"
+          cp -R "dist/Nova Tray.app" "dist_mac/Nova-${APPVER}/"
+          hdiutil create -volname "Nova ${APPVER}" -srcfolder "dist_mac/Nova-${APPVER}" -ov -format UDZO "Nova_${APPVER}_mac.dmg"
 
       - name: Build PKG installer (primary for mac users)
         env:
           TMPDIR: ${{ env.TMPDIR }}
         run: |
           set -euo pipefail
+          APPVER="${APPVER:-0.0.0-ci}"
           chmod +x mac/pkg/scripts/postinstall
-          pkgbuild --identifier com.novaai.NOVA \
+          pkgbuild --identifier com.novaai.Nova \
                    --version "$APPVER" \
                    --install-location /Applications \
-                   --component "dist/NOVA.app" \
+                   --component "dist/Nova.app" \
                    --component "dist/Nova Tray.app" \
                    --scripts mac/pkg/scripts \
-                   "NOVA_${APPVER}_mac.pkg"
-
-      # ---------- NEW: split install and checks ----------
+                   "Nova_${APPVER}_mac.pkg"
 
       - name: Install PKG (fail only if installer errors)
         run: |
           set -euo pipefail
-          if ! sudo env CI=1 GITHUB_ACTIONS=1 installer -pkg "NOVA_${APPVER}_mac.pkg" -target / -verboseR; then
+          if ! sudo env CI=1 GITHUB_ACTIONS=1 installer -pkg "Nova_${APPVER:-0.0.0-ci}_mac.pkg" -target / -verboseR; then
             echo "---- tail /var/log/install.log ----"
             sudo tail -n 200 /var/log/install.log || true
             exit 1
@@ -115,13 +335,13 @@ jobs:
 
       - name: Post-install sanity (non-fatal warnings)
         run: |
-          set +e  # do NOT fail build on the checks below
+          set +e
           echo "::group::Sanity checks"
           warn=0
           check() { eval "$1"; rc=$?; if [ $rc -ne 0 ]; then echo "::warning::$2"; warn=1; fi; }
-          check '[ -d "/Applications/NOVA.app" ]' "Missing /Applications/NOVA.app"
+          check '[ -d "/Applications/Nova.app" ]' "Missing /Applications/Nova.app"
           check '[ -d "/Applications/Nova Tray.app" ]' "Missing /Applications/Nova Tray.app"
-          check '[ -x "/Applications/NOVA.app/Contents/MacOS/NOVA" ]' "NOVA binary not executable"
+          check '[ -x "/Applications/Nova.app/Contents/MacOS/Nova" ]' "Nova binary not executable"
           check '[ -x "/Applications/Nova Tray.app/Contents/MacOS/NovaTray" ]' "NovaTray binary not executable"
           if [ -f "/Library/LaunchAgents/com.novaai.tray.plist" ]; then
             ARG0="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' /Library/LaunchAgents/com.novaai.tray.plist 2>/dev/null)"
@@ -132,24 +352,21 @@ jobs:
             warn=1
           fi
           echo "::endgroup::"
-          # Always succeed; installer success is what we care about in CI
           exit 0
-
-      # --------------------------------------------------
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: NOVA-mac-${{ github.ref_name }}
+          name: Nova-mac-${{ github.ref_name }}-${{ matrix.os }}
           path: |
             dist/*.app
-            NOVA_*_mac.dmg
-            NOVA_*_mac.pkg
+            Nova_*_mac.dmg
+            Nova_*_mac.pkg
 
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags_v') # unchanged
     permissions:
       contents: write
     steps:
@@ -159,27 +376,32 @@ jobs:
       - name: Download mac artifacts
         uses: actions/download-artifact@v4
         with:
-          name: NOVA-mac-${{ github.ref_name }}
-          path: release_assets
+          name: Nova-mac-${{ github.ref_name }}-macos-13
+          path: release_assets/macos-13
+
+      - name: Download mac artifacts (Apple Silicon)
+        uses: actions/download-artifact@v4
+        with:
+          name: Nova-mac-${{ github.ref_name }}-macos-14
+          path: release_assets/macos-14
 
       - name: Zip .app bundles for upload
         run: |
           set -euo pipefail
-          cd release_assets
-          if [ -d "NOVA.app" ]; then zip -r "NOVA_${APPVER}_mac.app.zip" "NOVA.app"; fi
-          if [ -d "Nova Tray.app" ]; then zip -r "Nova_Tray_${APPVER}_mac.app.zip" "Nova Tray.app"; fi
-          if [ -d "dist/NOVA.app" ]; then (cd dist && zip -r "../NOVA_${APPVER}_mac.app.zip" "NOVA.app"); fi
-          if [ -d "dist/Nova Tray.app" ]; then (cd dist && zip -r "../Nova_Tray_${APPVER}_mac.app.zip" "Nova Tray.app"); fi
+          find release_assets -maxdepth 2 -type d -name "Nova.app" -execdir bash -lc 'zip -r Nova_${APPVER}_mac.app.zip Nova.app' \; || true
+          find release_assets -maxdepth 2 -type d -name "Nova Tray.app" -execdir bash -lc 'zip -r Nova_Tray_${APPVER}_mac.app.zip "Nova Tray.app"' \; || true
+          if [ -d release_assets/macos-13/dist ]; then (cd release_assets/macos-13/dist && zip -r ../Nova_${APPVER}_mac.app.zip "Nova.app"); fi || true
+          if [ -d release_assets/macos-13/dist ]; then (cd release_assets/macos-13/dist && zip -r ../Nova_Tray_${APPVER}_mac.app.zip "Nova Tray.app"); fi || true
 
       - name: Make stable-named copies (for latest/ links)
         run: |
           set -euo pipefail
           cd release_assets
-          pkg=$(ls NOVA_*_mac.pkg | head -n1); cp "$pkg" NOVA_mac.pkg
-          dmg=$(ls NOVA_*_mac.dmg | head -n1); cp "$dmg" NOVA_mac.dmg
-          shasum -a 256 * > SHA256SUMS.txt || true
+          pkg=$(ls -1 macos-14/Nova_*_mac.pkg macos-13/Nova_*_mac.pkg 2>/dev/null | head -n1); cp "$pkg" Nova_mac.pkg
+          dmg=$(ls -1 macos-14/Nova_*_mac.dmg macos-13/Nova_*_mac.dmg 2>/dev/null | head -n1); cp "$dmg" Nova_mac.dmg
+          shasum -a 256 */Nova_*_mac.* Nova_mac.* 2>/dev/null > SHA256SUMS.txt || true
 
-      - name: Prepare release body (no linter warnings)
+      - name: Prepare release body 
         run: |
           set -euo pipefail
           cat > release_assets/RELEASE_BODY.md <<'EOF'
@@ -187,12 +409,12 @@ jobs:
 
           🪟 **Windows**
           - Installer: **NovaSetup.exe**
-          - Portable: **NOVA_${APPVER}_windows_portable.zip**
+          - Portable: **Nova_${APPVER}_windows_portable.zip**
 
           🍎 **macOS**
-          - PKG (recommended): **NOVA_${APPVER}_mac.pkg**
-          - DMG: **NOVA_${APPVER}_mac.dmg**
-          - App zips: **NOVA_${APPVER}_mac.app.zip**, **Nova_Tray_${APPVER}_mac.app.zip**
+          - PKG (recommended): **Nova_${APPVER}_mac.pkg**
+          - DMG: **Nova_${APPVER}_mac.dmg**
+          - App zips: **Nova_${APPVER}_mac.app.zip**, **Nova_Tray_${APPVER}_mac.app.zip**
 
           🐧 **Linux (Debian/Ubuntu)**
           - .deb: **nova_ai_assistant_${APPVER}-1_amd64.deb**
@@ -208,16 +430,16 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: NOVA ${{ github.ref_name }}
+          name: Nova ${{ github.ref_name }}
           draft: false
           prerelease: false
           body_path: release_assets/RELEASE_BODY.md
           files: |
-            release_assets/NOVA_*_mac.dmg
-            release_assets/NOVA_*_mac.pkg
-            release_assets/NOVA_mac.dmg
-            release_assets/NOVA_mac.pkg
-            release_assets/*_mac.app.zip
+            release_assets/Nova_*_mac.dmg
+            release_assets/Nova_*_mac.pkg
+            release_assets/Nova_mac.dmg
+            release_assets/Nova_mac.pkg
+            release_assets/*/*_mac.app.zip
             release_assets/SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

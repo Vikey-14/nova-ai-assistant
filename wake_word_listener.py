@@ -361,6 +361,13 @@ def run_change_language_flow(_speak_multilang, listen_command, current_lang: str
             utils.selected_language = code
             try:
                 save_to_memory("language", code)
+                try:
+                    s = utils.load_settings()   # read current settings.json
+                    s["language"] = code        # update just the language
+                    utils.save_settings(s)      # write it back
+                except Exception:
+                    pass
+                
             except Exception:
                 pass
             confirmations = {

@@ -1,28 +1,35 @@
 name: macOS build (.app + DMG)
+
 on:
   workflow_dispatch:
   push:
     tags: ['v*']
+
 jobs:
   build:
     runs-on: macos-13
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
+        with:
+          python-version: '3.11'
 
       - name: Homebrew deps
         run: |
+          set -euo pipefail
           brew update
           brew install portaudio ffmpeg
 
       - name: Python deps
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip wheel
           pip install -r requirements.macos.txt pyinstaller
 
       - name: Make .icns from assets/nova_icon_256.png
         run: |
+          set -euo pipefail
           mkdir -p icons/nova.iconset
           sips -z 16 16  assets/nova_icon_256.png --out icons/nova.iconset/icon_16x16.png
           sips -z 32 32  assets/nova_icon_256.png --out icons/nova.iconset/icon_16x16@2x.png
@@ -35,16 +42,21 @@ jobs:
           iconutil -c icns icons/nova.iconset -o icons/nova.icns
 
       - name: Build apps with PyInstaller
-        run: pyinstaller NOVA_Mac.spec
+        run: |
+          set -euo pipefail
+          pyinstaller --clean NOVA_Mac.spec
+          rm -rf build  # shrink artifact size
 
       - name: Make DMG
         run: |
-          APPVER=${GITHUB_REF_NAME#v}
-          mkdir -p dist_mac/Nova-${APPVER}
-          cp -R dist/Nova.app dist_mac/Nova-${APPVER}/
-          cp -R dist/NovaTray.app dist_mac/Nova-${APPVER}/
-          cp -R mac dist_mac/Nova-${APPVER}/
-          hdiutil create -volname "Nova ${APPVER}" -srcfolder dist_mac/Nova-${APPVER} -ov -format UDZO Nova_${APPVER}_mac.dmg
+          set -euo pipefail
+          APPVER="${GITHUB_REF_NAME#v}"
+          mkdir -p "dist_mac/Nova-${APPVER}"
+          cp -R "dist/Nova.app"       "dist_mac/Nova-${APPVER}/"
+          cp -R "dist/Nova Tray.app"  "dist_mac/Nova-${APPVER}/"
+          # Optional: include your mac/ folder inside the DMG for extras
+          [ -d mac ] && cp -R mac "dist_mac/Nova-${APPVER}/" || true
+          hdiutil create -volname "Nova ${APPVER}" -srcfolder "dist_mac/Nova-${APPVER}" -ov -format UDZO "Nova_${APPVER}_mac.dmg"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

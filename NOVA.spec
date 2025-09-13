@@ -3,6 +3,7 @@
 import os, sys
 from pathlib import Path
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files
+from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT
 from PyInstaller.building.datastruct import Tree
 
 block_cipher = None
@@ -165,13 +166,14 @@ for fname in [
     'nova_icon.ico',
     'nova_icon_big.ico',
     'nova_logs.txt',
+    'hashed.txt',                # ← ADDED: include hashed list at app root
 ]:
     add_file_if_exists(fname, '.')
 
 # Ensure local utils.py is present for the runtime hook to pin
 add_file_if_exists('utils.py', '.')
 
-# Explicit include for blocklist and then whole data/
+# Explicit include for blocklist and then whole data/ (harmless if you later delete the file)
 add_file_if_exists('data/name_blocklist_en.txt', 'data')
 
 # Catch-all for any other root-level JSONs
@@ -189,11 +191,17 @@ add_dir_nonpy('data', 'data')
 # Include assets (icons, images used by tray tip, etc.)
 add_dir_nonpy('assets', 'assets')
 
+# >>> Piper offline voices (Windows) — bundle manifest, models, and the win binary
+add_file_if_exists('third_party/piper/models_manifest.json', 'third_party/piper')
+add_dir_nonpy('third_party/piper/models',       'third_party/piper/models')
+add_dir_nonpy('third_party/piper/windows-x64',  'third_party/piper/windows-x64')
+# (If your win bundle includes espeak-ng-data under windows-x64, it will be picked up by the line above)
+
 # Optional hooks folder (Windows-only hooks live in hooks_win/)
 hookspaths = [str(BASE / 'hooks_win')] if (BASE / 'hooks_win').is_dir() else []
 
 # =========================================================
-# ==============  MAIN APP: NOVA.exe  =====================
+# ==============  MAIN APP: Nova.exe  =====================
 # =========================================================
 a_main = Analysis(
     [str(BASE / 'main.py')],
@@ -206,7 +214,7 @@ a_main = Analysis(
     runtime_hooks=[
         str(BASE / 'hooks_win' / 'rthook_force_local_utils.py'),
         str(BASE / 'hooks_win' / 'rthook_mpl_quiet.py'),
-    ],
+    ] if (BASE / 'hooks_win').is_dir() else [],
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -221,7 +229,7 @@ exe_main = EXE(
     a_main.scripts,
     [],
     exclude_binaries=True,
-    name='NOVA',
+    name='Nova',                               # was 'NOVA'
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -233,6 +241,7 @@ exe_main = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(BASE / 'nova_icon_big.ico'),
+    version=str(BASE / 'version_info_main.txt'),  # embed display name/version
 )
 
 # =========================================================
@@ -248,8 +257,8 @@ a_tray = Analysis(
     hooksconfig={},
     runtime_hooks=[
         str(BASE / 'hooks_win' / 'rthook_force_local_utils.py'),
-        # Tray doesn't need Matplotlib quiet hook; omit to keep it lean
-    ],
+        # Tray doesn't need Matplotlib quiet hook
+    ] if (BASE / 'hooks_win').is_dir() else [],
     excludes=[],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
@@ -276,6 +285,7 @@ exe_tray = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(BASE / 'nova_icon_big.ico'),
+    version=str(BASE / 'version_info_tray.txt'),  # embed display name/version
 )
 
 collect_args = [
@@ -295,5 +305,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='NOVA',
+    name='Nova',          # dist\Nova\...
 )

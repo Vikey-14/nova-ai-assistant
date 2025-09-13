@@ -11,6 +11,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Speed up pip installs (Windows path + common cache dir)
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pip
+            ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"  # Windows on 3.12
@@ -27,16 +37,64 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           pip install -r requirements.txt "pyinstaller>=6.8"
 
+      # Make APPVER available (e.g. v1.0.26 -> 1.0.26)
+      - name: Derive APPVER from tag
+        shell: powershell
+        run: |
+          $ver = $env:GITHUB_REF_NAME.TrimStart('v')
+          "APPVER=$ver" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # Generate Windows version resource files so Properties/Settings show "Nova" / "Nova Tray"
+      - name: Generate version_info from tag (Windows)
+        shell: powershell
+        run: |
+          $ver = $env:GITHUB_REF_NAME.TrimStart('v')
+          if ($ver -notmatch '^(\d+)\.(\d+)\.(\d+)(?:\.(\d+))?$') { throw "Bad VERSION: $ver" }
+          $maj=[int]$Matches[1]; $min=[int]$Matches[2]; $pat=[int]$Matches[3]; $bld=[int]([string]::IsNullOrEmpty($Matches[4])?0:$Matches[4])
+
+          function New-VersionInfo($p,$prod,$desc,$orig){
+            $c=@"
+          VSVersionInfo(
+            ffi=FixedFileInfo(filevers=($maj,$min,$pat,$bld), prodvers=($maj,$min,$pat,$bld),
+              mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0,0)),
+            kids=[StringFileInfo([StringTable('040904B0', [
+              StringStruct('CompanyName','Nova'),
+              StringStruct('FileDescription','$desc'),
+              StringStruct('ProductName','$prod'),
+              StringStruct('ProductVersion','$ver'),
+              StringStruct('FileVersion','$ver'),
+              StringStruct('InternalName','$prod'),
+              StringStruct('OriginalFilename','$orig')
+            ])]), VarFileInfo([VarStruct('Translation',[1033,1200])])]
+          )
+          "@
+            Set-Content -Path $p -Value $c -Encoding UTF8
+          }
+
+          New-VersionInfo "version_info_main.txt" "Nova"      "Nova"      "Nova.exe"
+          New-VersionInfo "version_info_tray.txt" "Nova Tray" "Nova Tray" "Nova Tray.exe"
+
+      # === Write hashed.txt from secret so the spec can bundle it ===
+      - name: Create hashed.txt from secret (Windows)
+        shell: powershell
+        env:
+          HASHED_NAME_BLOCKLIST: ${{ secrets.HASHED_NAME_BLOCKLIST }}
+        run: |
+          if (-not $env:HASHED_NAME_BLOCKLIST) {
+            Write-Error "::error::HASHED_NAME_BLOCKLIST secret not set or empty"
+            exit 1
+          }
+          $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+          [System.IO.File]::WriteAllText("hashed.txt", $env:HASHED_NAME_BLOCKLIST, $utf8NoBom)
+          $lines = (Get-Content .\hashed.txt | Measure-Object -Line).Lines
+          Write-Host "hashed.txt lines: $lines"
+
       - name: Build with PyInstaller (Windows)
         shell: powershell
         run: |
-          pyinstaller NOVA.spec
+          Remove-Item -Recurse -Force build, dist -ErrorAction SilentlyContinue
+          pyinstaller .\NOVA.spec
           Get-ChildItem dist -Recurse | Select-Object FullName,Length
-
-      # Make APPVER available (e.g. v1.0.26 -> 1.0.26)
-      - name: Derive APPVER from tag
-        shell: bash
-        run: echo "APPVER=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
 
       - name: Build Inno Setup installer
         shell: powershell
@@ -47,28 +105,28 @@ jobs:
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" .\NovaInstaller.iss
           Get-ChildItem dist\installer -Recurse | Select-Object FullName,Length
 
-      # FIX: use Compress-Archive instead of 'zip'
-      - name: Zip portable bundles (optional)
+      - name: Zip portable bundle (optional)
         shell: powershell
         env:
           APPVER: ${{ env.APPVER }}
         run: |
-          if (Test-Path "dist\NOVA") {
-            $zip = "dist\NOVA_${env:APPVER}_windows_portable.zip"
+          if (Test-Path "dist\Nova") {
+            $zip = "dist\Nova_${env:APPVER}_windows_portable.zip"
             if (Test-Path $zip) { Remove-Item $zip -Force }
-            Compress-Archive -Path "dist\NOVA" -DestinationPath $zip -CompressionLevel Optimal
+            Compress-Archive -Path "dist\Nova\*" -DestinationPath $zip -CompressionLevel Optimal
             Write-Host "Created $zip"
           } else {
-            Write-Host "No dist\NOVA folder; skipping portable zip."
+            Write-Host "No dist\Nova folder; skipping portable zip."
           }
 
       - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: NOVA-windows-${{ github.ref_name }}
+          name: Nova-windows-${{ github.ref_name }}
           path: |
             dist/installer/NovaSetup.exe
             dist/*_windows_portable.zip
+          if-no-files-found: warn
 
   release:
     needs: build
@@ -80,7 +138,7 @@ jobs:
       - name: Download Windows artifacts
         uses: actions/download-artifact@v4
         with:
-          name: NOVA-windows-${{ github.ref_name }}
+          name: Nova-windows-${{ github.ref_name }}
           path: release_assets
 
       - name: Prepare assets (flatten + stable names + checksums)
@@ -93,14 +151,17 @@ jobs:
           if [ -n "$f" ]; then cp "$f" NovaSetup.exe; fi
           # bring portable zips to top-level
           find . -type f -name '*_windows_portable.zip' -exec cp {} . \; || true
-          # checksums (best-effort)
+          # stable-named copy for README link
+          f=$(ls *_windows_portable.zip | head -n1 || true)
+          if [ -n "$f" ]; then cp "$f" Nova_windows_portable.zip; fi
+          # checksums
           shasum -a 256 * > SHA256SUMS.txt || true
 
       - name: Create/Update GitHub Release (attach Windows files)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
-          name: NOVA ${{ github.ref_name }}
+          name: Nova ${{ github.ref_name }}
           draft: false
           prerelease: false
           files: |
