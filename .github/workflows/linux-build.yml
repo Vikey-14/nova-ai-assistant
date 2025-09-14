@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Make a filesystem-safe ref for artifact names (replace / with -)
+      # Sanitize ref for artifact names (replace / with -)
       - name: Sanitize ref for artifact names
         shell: bash
         run: echo "SAFE_REF=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_ENV"
@@ -121,7 +121,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Same sanitization for this job
       - name: Sanitize ref for artifact names
         shell: bash
         run: echo "SAFE_REF=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_ENV"
@@ -152,9 +151,11 @@ jobs:
               ffmpeg libpulse0 desktop-file-utils python3-tk \
               cmake ninja-build
             python3 -m pip install --upgrade pip wheel
-            python3 -m pip install -r requirements.linux.txt pyinstaller
           run: |
             set -euo pipefail
+
+            # Now that the repo is mounted at /work, install Python deps
+            python3 -m pip install -r requirements.linux.txt pyinstaller
 
             # -------- Build Piper from source (arm64) ----------
             HOST_DIR="third_party/piper/linux-arm64"
@@ -193,7 +194,7 @@ jobs:
             pyinstaller --distpath dist_linux NOVA_Linux.spec
             ls -lah dist_linux || true
 
-            # -------- Build .deb (arm64)  (Debian-safe versioning) ----------
+            # -------- Build .deb (arm64) - Debian-safe versioning ----------
             if [[ "${GITHUB_REF:-}" =~ ^refs/tags/v ]]; then
               APPVER="${GITHUB_REF_NAME#v}"
             else
