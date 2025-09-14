@@ -74,12 +74,17 @@ jobs:
           pyinstaller --distpath dist_linux NOVA_Linux.spec
           ls -lah dist_linux || true
 
-      - name: Build .deb (amd64)
-        env:
-          APPVER: ${{ github.ref_name }}
+      - name: Build .deb (amd64)  # <-- Debian-safe version for non-tag builds
         run: |
           set -euo pipefail
-          APPVER="${APPVER#v}"; [ -z "$APPVER" ] && APPVER="1.0.0"
+          if [[ "${GITHUB_REF:-}" =~ ^refs/tags/v ]]; then
+            APPVER="${GITHUB_REF_NAME#v}"
+          else
+            RUN_NO="${GITHUB_RUN_NUMBER:-0}"
+            SHORT_SHA="$(echo "${GITHUB_SHA:-0000000}" | cut -c1-7)"
+            APPVER="0.0.0~ci.${RUN_NO}.${SHORT_SHA}"
+          fi
+          echo "Using APPVER=${APPVER}"
           bash pack_deb.sh "${APPVER}-1" amd64
           ls -lah dist_linux | grep -E 'amd64\.deb$' || true
 
@@ -106,7 +111,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-amd64
     env:
-      PIPER_REF: "v1.2.0"   # pin the Piper source (tag or commit SHA)
+      PIPER_REF: "v1.2.0"   # pin Piper source
     steps:
       - uses: actions/checkout@v4
 
@@ -177,8 +182,15 @@ jobs:
             pyinstaller --distpath dist_linux NOVA_Linux.spec
             ls -lah dist_linux || true
 
-            # -------- Build .deb (arm64) ----------
-            APPVER="${GITHUB_REF_NAME#v}"; [ -z "$APPVER" ] && APPVER="1.0.0"
+            # -------- Build .deb (arm64)  # Debian-safe version for non-tag builds ----------
+            if [[ "${GITHUB_REF:-}" =~ ^refs/tags/v ]]; then
+              APPVER="${GITHUB_REF_NAME#v}"
+            else
+              RUN_NO="${GITHUB_RUN_NUMBER:-0}"
+              SHORT_SHA="$(echo "${GITHUB_SHA:-0000000}" | cut -c1-7)"
+              APPVER="0.0.0~ci.${RUN_NO}.${SHORT_SHA}"
+            fi
+            echo "Using APPVER=${APPVER}"
             ARCH=arm64 bash pack_deb.sh "${APPVER}-1" arm64
             ls -lah dist_linux | grep -E 'arm64\.deb$' || true
 
