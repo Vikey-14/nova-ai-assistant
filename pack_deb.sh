@@ -1,8 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Usage:
+#   bash pack_deb.sh 1.0.2-1            # builds amd64 by default
+#   bash pack_deb.sh 1.0.2-1 arm64      # builds arm64
+# You can also export ARCH=arm64 and call with one arg.
+
 APPVER="${1:-1.0.2-1}"
-ARCH=amd64
+ARCH="${2:-${ARCH:-amd64}}"
+
 PKGNAME=nova-ai-assistant
 PKGROOT="/tmp/nova_ai_assistant_${APPVER}_${ARCH}"
 PKGFILE="nova_ai_assistant_${APPVER}_${ARCH}.deb"
@@ -25,20 +31,29 @@ mkdir -p "$PKGROOT/DEBIAN" \
 # This preserves hashed.txt, assets/, data/, handlers/, third_party/piper, etc.
 cp -a "${SRC_DIR}/." "$PKGROOT${APPDIR}/"
 
+# Optional (tidy): drop other-arch Piper and any 0-byte leftovers
+if [ "${ARCH}" = "amd64" ]; then
+  rm -rf "$PKGROOT${APPDIR}/third_party/piper/linux-arm64" || true
+elif [ "${ARCH}" = "arm64" ]; then
+  rm -rf "$PKGROOT${APPDIR}/third_party/piper/linux-x64" || true
+fi
+find "$PKGROOT${APPDIR}/third_party/piper" -type f -size 0 -delete 2>/dev/null || true
+
 # Ensure main binaries are executable (PyInstaller usually does this already)
 chmod 0755 "$PKGROOT${APPDIR}/Nova" "$PKGROOT${APPDIR}/NovaTray" 2>/dev/null || true
 
-# Helper: resolve Piper dir (prefer linux-x64, else linux-arm64)
+# ---------------- Piper env snippet (ARCH-AWARE) ----------------
+# Helper: resolve Piper dir (pick by CPU arch at runtime)
 piper_dir_snippet='
 APPDIR="/opt/nova"
-if [ -d "$APPDIR/third_party/piper/linux-x64" ]; then
-  PIPDIR="$APPDIR/third_party/piper/linux-x64"
-elif [ -d "$APPDIR/third_party/piper/linux-arm64" ]; then
-  PIPDIR="$APPDIR/third_party/piper/linux-arm64"
-else
-  PIPDIR=""
-fi
-if [ -n "$PIPDIR" ]; then
+arch="$(uname -m)"
+case "$arch" in
+  x86_64|amd64)   PIPDIR="$APPDIR/third_party/piper/linux-x64" ;;
+  aarch64|arm64)  PIPDIR="$APPDIR/third_party/piper/linux-arm64" ;;
+  *)              PIPDIR="" ;;
+esac
+
+if [ -d "$PIPDIR" ]; then
   export LD_LIBRARY_PATH="$PIPDIR:${LD_LIBRARY_PATH:-}"
   export ESPEAK_DATA="$PIPDIR/espeak-ng-data"
   if [ -f "$PIPDIR/libpiper_phonemize.so" ]; then
@@ -215,15 +230,16 @@ dpkg-deb --build --root-owner-group "$PKGROOT" "/tmp/${PKGFILE}"
 mkdir -p dist_linux
 mv "/tmp/${PKGFILE}" dist_linux/
 
-# ---------------- Stable-name artifact ----------------
+# ---------------- Stable-name artifact (arch-aware) ----------------
 (
   cd dist_linux
+  stable="nova_ai_assistant_${ARCH}.deb"
   if [ -n "${WSL_DISTRO_NAME:-}" ]; then
-    cp -f "$PKGFILE" nova_ai_assistant_amd64.deb
+    cp -f "$PKGFILE" "$stable"
   else
-    ln -sfn "$PKGFILE" nova_ai_assistant_amd64.deb 2>/dev/null || cp -f "$PKGFILE" nova_ai_assistant_amd64.deb
+    ln -sfn "$PKGFILE" "$stable" 2>/dev/null || cp -f "$PKGFILE" "$stable"
   fi
 )
 
-echo "Built: dist_linux/${PKGFILE}"
-echo "Stable: dist_linux/nova_ai_assistant_amd64.deb -> ${PKGFILE}"
+echo "Built:  dist_linux/${PKGFILE}"
+echo "Stable: dist_linux/nova_ai_assistant_${ARCH}.deb -> ${PKGFILE}"

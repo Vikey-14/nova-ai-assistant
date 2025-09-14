@@ -14,17 +14,19 @@ def add_dir_files(root_dir, target_prefix, allow_ext=None):
     pairs = []
     root = BASE / root_dir
     if root.is_dir():
-        for dp, dn, fnames in os.walk(root):
+        for dp, _, fnames in os.walk(root):
             rel_dir = Path(dp).relative_to(root)
             dest_dir = str(Path(target_prefix) / rel_dir).replace("\\", "/") or "."
             for fn in fnames:
-                src = Path(dp) / fn
                 if allow_ext and Path(fn).suffix.lower() not in allow_ext:
                     continue
+                src = Path(dp) / fn
                 pairs.append((str(src), dest_dir))
     return pairs
 
 def add_broken_zip_assets(target_prefix="assets"):
+    """Guard in case assets were unzipped wrong (files like 'assets\\...'
+    landed in repo root)."""
     pairs = []
     for p in BASE.iterdir():
         if p.is_file() and p.name.startswith("assets\\"):
@@ -70,12 +72,10 @@ hidden += [
     "encodings", "codecs", "zlib", "bz2", "lzma", "unicodedata",
 ]
 hidden += collect_submodules("encodings")
-
 try:
     hidden += collect_submodules("edge_tts")
 except Exception:
     pass
-
 hidden += ["PIL._tkinter_finder", "PIL.ImageTk", "PIL._imagingtk"]
 
 # GTK/AppIndicator GI backends for pystray on Linux
@@ -95,7 +95,7 @@ for fn in ("settings.json", "settings.wsl.json", "settings.linux.json"):
     if p.exists():
         datas.append((str(p), "."))
 
-# >>> ADDED: bundle hashed.txt (root-level) <<<
+# root-level hashed blocklist
 p_hashed = BASE / "hashed.txt"
 if p_hashed.exists():
     datas.append((str(p_hashed), "."))
@@ -107,28 +107,26 @@ for fn in ("nova_icon_big.ico", "nova icon.ico", "nova_icon.ico",
     if p.exists():
         datas.append((str(p), "."))
 
-# entire assets/ folder (as (src, dest) PAIRS for Analysis)
+# assets/, and rescue incorrectly extracted assets
 if (BASE / "assets").is_dir():
     datas += add_dir_files("assets", "assets")
-
-# ALSO sweep up incorrectly extracted 'assets\\...' files at root
 datas += add_broken_zip_assets("assets")
 
-# data + handlers extra non-py files
+# data/ and handlers/ side-files
 datas += add_dir_files("data", "data")
 datas += add_dir_files(
     "handlers", "handlers",
     allow_ext={".json", ".txt", ".png", ".jpg", ".jpeg", ".gif", ".ico"}
 )
 
-# lib data that matplotlib/dateparser/certifi expect
+# lib data expected by deps
 for mod in ("matplotlib", "dateparser", "dateparser_data", "certifi"):
     try:
         datas += collect_data_files(mod)
     except Exception:
         pass
 
-# >>> Piper offline voices (Linux) — manifest, models, both arch bins
+# Piper (offline) — manifest, models, *both* Linux arch bins
 man = BASE / "third_party/piper/models_manifest.json"
 if man.is_file():
     datas.append((str(man), "third_party/piper"))
@@ -136,11 +134,11 @@ datas += add_dir_files("third_party/piper/models",      "third_party/piper/model
 datas += add_dir_files("third_party/piper/linux-x64",   "third_party/piper/linux-x64")
 datas += add_dir_files("third_party/piper/linux-arm64", "third_party/piper/linux-arm64")
 
-# ship stdlib encodings directly under MEIPASS (OK to be a Tree later)
+# stdlib encodings as a Tree so they’re available in MEIPASS
 ENC_DIR = str(Path(_enc.__file__).parent)
 enc_tree = Tree(ENC_DIR, prefix="encodings")
 
-# exclude Windows-only stuff from Linux build
+# exclude Windows-only things from Linux build
 excludes = [
     "win32api", "win32gui", "win32con", "win32com",
     "pycaw", "comtypes", "wmi", "pywin32", "pythoncom", "pywintypes",
@@ -168,10 +166,10 @@ exe1 = EXE(
     a1.scripts,
     a1.binaries,
     a1.zipfiles,
-    a1.datas + enc_tree,     # EXE accepts TOC/Tree items
+    a1.datas + enc_tree,   # include encodings into the EXE
     [],
     name="Nova",
-    debug=True,
+    debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
@@ -203,7 +201,7 @@ exe2 = EXE(
     a2.datas + enc_tree,
     [],
     name="NovaTray",
-    debug=True,
+    debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,

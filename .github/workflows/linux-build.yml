@@ -7,12 +7,12 @@ on:
     tags: ["v*"]
 
 jobs:
-  build:
+  # ==================== AMD64 (.deb) ====================
+  build-amd64:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      # Speed up pip installs on Linux runners
       - uses: actions/cache@v4
         with:
           path: ~/.cache/pip
@@ -29,54 +29,41 @@ jobs:
           set -euo pipefail
           sudo apt-get -qq update
           sudo apt-get -yqq install \
-            build-essential python3-dev pkg-config git \
-            cmake ninja-build \
+            build-essential python3-dev pkg-config git curl \
             libsndfile1 libsndfile1-dev \
             espeak-ng espeak-ng-data libespeak-ng1 libespeak-ng-dev \
             portaudio19-dev libportaudio2 libportaudiocpp0 \
             libasound2-dev libjack-jackd2-dev \
             ffmpeg libpulse0 desktop-file-utils
-          # Ubuntu 24.04 renames libasound2 -> libasound2t64
           sudo apt-get -yqq install libasound2 || sudo apt-get -yqq install libasound2t64
-          # Tk for PyInstaller analysis (NOVA_Linux.spec pulls in tkinter)
           sudo apt-get -yqq install python3.11-tk || sudo apt-get -yqq install python3-tk
 
       - name: Python deps
         run: |
-          set -euo pipefail
           python -m pip install --upgrade pip wheel
           pip install -r requirements.linux.txt pyinstaller
 
-      # ---------- Build Piper from source and stage into repo tree ----------
-      - name: Build Piper (Linux x64) and stage
+      - name: Create hashed.txt from secret
+        env:
+          HASHED_NAME_BLOCKLIST: ${{ secrets.HASHED_NAME_BLOCKLIST }}
         run: |
           set -euo pipefail
-          # Build
-          rm -rf /tmp/piper_src /tmp/piper_build
-          git clone --depth=1 https://github.com/rhasspy/piper.git /tmp/piper_src
-          cmake -S /tmp/piper_src -B /tmp/piper_build -DCMAKE_BUILD_TYPE=Release -G Ninja
-          cmake --build /tmp/piper_build --config Release -j
+          [ -n "${HASHED_NAME_BLOCKLIST:-}" ] || { echo "::error::HASHED_NAME_BLOCKLIST is empty"; exit 1; }
+          printf '%s\n' "$HASHED_NAME_BLOCKLIST" > hashed.txt
+          echo "hashed.txt lines: $(wc -l < hashed.txt)"
 
-          # Stage into the expected folder so NOVA_Linux.spec can bundle it
-          DEST="third_party/piper/linux-x64"
-          mkdir -p "$DEST"
-          cp -av /tmp/piper_build/piper "$DEST"/
-          chmod +x "$DEST/piper"
+      # ---------- Stage Piper (prebuilt, x86_64) ----------
+      - name: Fetch Piper prebuilt (amd64) and stage
+        run: |
+          set -euo pipefail
+          HOST_DIR="third_party/piper/linux-x64"
+          rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR" /tmp/piper_pre
+          curl -L "https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_linux_x86_64.tar.gz" -o /tmp/piper.tar.gz
+          tar -xzf /tmp/piper.tar.gz -C /tmp/piper_pre
+          cp -av /tmp/piper_pre/piper "$HOST_DIR"/ && chmod +x "$HOST_DIR/piper"
+          [ -d /tmp/piper_pre/espeak-ng-data ] && cp -a /tmp/piper_pre/espeak-ng-data "$HOST_DIR"/ || true
+          ls -la "$HOST_DIR" || true
 
-          # Copy Piper-built shared libs (phonemize/espeak) if present
-          find /tmp/piper_build -type f \( -name 'libpiper*.so*' -o -name 'libespeak*.so*' \) -exec cp -av {} "$DEST"/ \; || true
-
-          # Ensure espeak-ng-data next to the binary (prefer system copy if build tree lacks it)
-          if [ -d /tmp/piper_build/espeak-ng-data ]; then
-            cp -a /tmp/piper_build/espeak-ng-data "$DEST"/
-          elif [ -d /usr/share/espeak-ng-data ]; then
-            cp -a /usr/share/espeak-ng-data "$DEST"/
-          fi
-
-          echo "==== Staged Piper contents ===="
-          ls -la "$DEST" || true
-
-      # (Optional) Smoke test Piper if a model exists in repo (skips otherwise)
       - name: Piper smoke test (optional)
         run: |
           set -euo pipefail
@@ -92,64 +79,135 @@ jobs:
             echo "Models not in repo; skipping smoke."
           fi
 
-      # ---------- Blocklist file from secret ----------
-      - name: Create hashed.txt from secret
-        env:
-          HASHED_NAME_BLOCKLIST: ${{ secrets.HASHED_NAME_BLOCKLIST }}
-        run: |
-          set -euo pipefail
-          if [ -z "${HASHED_NAME_BLOCKLIST:-}" ]; then
-            echo "::error::HASHED_NAME_BLOCKLIST secret not set or empty"
-            exit 1
-          fi
-          printf '%s\n' "$HASHED_NAME_BLOCKLIST" > hashed.txt
-          echo "hashed.txt lines: $(wc -l < hashed.txt)"
-
-      - name: Build with PyInstaller (Linux)
+      - name: Build with PyInstaller (Linux amd64)
         run: |
           set -euo pipefail
           pyinstaller --distpath dist_linux NOVA_Linux.spec
           ls -lah dist_linux || true
 
-      - name: Clean old .deb files (keep workspace tidy)
-        run: |
-          set -euo pipefail
-          rm -f dist_linux/nova_ai_assistant_*_amd64.deb || true
-
-      - name: Build .deb
+      - name: Build .deb (amd64)
         env:
           APPVER: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          APPVER="${APPVER#v}"
-          [ -z "$APPVER" ] && APPVER="1.0.0"
-          bash pack_deb.sh "${APPVER}-1"
-          ls -lah dist_linux | grep -E '\.deb$' || true
+          APPVER="${APPVER#v}"; [ -z "$APPVER" ] && APPVER="1.0.0"
+          bash pack_deb.sh "${APPVER}-1" amd64
+          ls -lah dist_linux | grep -E 'amd64\.deb$' || true
 
       - name: Install & verify (smoke test)
         run: |
           set -euo pipefail
-          sudo apt-get -yqq install ./dist_linux/*.deb
+          sudo apt-get -yqq install ./dist_linux/*_amd64.deb
           test -f /usr/share/applications/nova.desktop
           test -f /etc/xdg/autostart/nova-tray.desktop
-          echo "Linux .deb installed & basic files present."
+          echo "Linux amd64 .deb installed & basic files present."
 
-      - name: Upload artifact (.deb)
+      - name: Upload artifact (.deb amd64)
         uses: actions/upload-artifact@v4
         with:
-          name: Nova-linux-${{ github.ref_name }}
-          path: dist_linux/*.deb
+          name: Nova-linux-amd64-${{ github.ref_name }}
+          path: |
+            dist_linux/*_amd64.deb
+            dist_linux/nova_ai_assistant_amd64.deb
           if-no-files-found: error
           compression-level: 0
 
+  # ==================== ARM64 (.deb) ====================
+  build-arm64:
+    runs-on: ubuntu-latest
+    needs: build-amd64
+    steps:
+      - uses: actions/checkout@v4
+
+      # NEW: create hashed.txt in this job as well
+      - name: Create hashed.txt from secret
+        env:
+          HASHED_NAME_BLOCKLIST: ${{ secrets.HASHED_NAME_BLOCKLIST }}
+        run: |
+          set -euo pipefail
+          [ -n "${HASHED_NAME_BLOCKLIST:-}" ] || { echo "::error::HASHED_NAME_BLOCKLIST is empty"; exit 1; }
+          printf '%s\n' "$HASHED_NAME_BLOCKLIST" > hashed.txt
+          echo "hashed.txt lines: $(wc -l < hashed.txt)"
+
+      - name: Build arm64 inside container
+        uses: uraimo/run-on-arch-action@v2
+        with:
+          arch: aarch64
+          distro: ubuntu22.04
+          shell: /bin/bash
+          install: |
+            apt-get -qq update
+            DEBIAN_FRONTEND=noninteractive apt-get -yqq install \
+              build-essential python3 python3-dev python3-pip pkg-config git curl \
+              libsndfile1 libsndfile1-dev \
+              espeak-ng espeak-ng-data libespeak-ng1 libespeak-ng-dev \
+              portaudio19-dev libportaudio2 libportaudiocpp0 \
+              libasound2-dev libjack-jackd2-dev \
+              ffmpeg libpulse0 desktop-file-utils python3-tk
+            python3 -m pip install --upgrade pip wheel
+            python3 -m pip install -r requirements.linux.txt pyinstaller
+          run: |
+            set -euo pipefail
+
+            # -------- Stage Piper (prebuilt, arm64) ----------
+            HOST_DIR="third_party/piper/linux-arm64"
+            rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR" /tmp/piper_pre
+            curl -L "https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_linux_arm64.tar.gz" -o /tmp/piper.tar.gz
+            tar -xzf /tmp/piper.tar.gz -C /tmp/piper_pre
+            cp -av /tmp/piper_pre/piper "$HOST_DIR"/ && chmod +x "$HOST_DIR/piper"
+            [ -d /tmp/piper_pre/espeak-ng-data ] && cp -a /tmp/piper_pre/espeak-ng-data "$HOST_DIR"/ || true
+            ls -la "$HOST_DIR" || true
+
+            # -------- NEW: ARM64 Piper smoke test ----------
+            BIN="$HOST_DIR/piper"
+            M="third_party/piper/models/en_US-ryan-medium.onnx"
+            C="third_party/piper/models/en_US-ryan-medium.onnx.json"
+            if [ -x "$BIN" ] && [ -f "$M" ] && [ -f "$C" ]; then
+              echo "Hello from Nova (arm64)" | "$BIN" -m "$M" -c "$C" -s 0 -f /tmp/smoke_arm64.wav
+              test -s /tmp/smoke_arm64.wav
+              file /tmp/smoke_arm64.wav || true
+              echo "ARM64 Piper smoke OK"
+            else
+              echo "Models missing; skipping ARM64 smoke."
+            fi
+
+            # -------- Build Nova binaries (arm64) ----------
+            pyinstaller --distpath dist_linux NOVA_Linux.spec
+            ls -lah dist_linux || true
+
+            # -------- Build .deb (arm64) ----------
+            APPVER="${GITHUB_REF_NAME#v}"; [ -z "$APPVER" ] && APPVER="1.0.0"
+            ARCH=arm64 bash pack_deb.sh "${APPVER}-1" arm64
+            ls -lah dist_linux | grep -E 'arm64\.deb$' || true
+
+      # NEW: upload the raw ARM64 piper so you can commit it later
+      - name: Upload linux arm64 piper (raw)
+        uses: actions/upload-artifact@v4
+        with:
+          name: piper-linux-arm64
+          path: third_party/piper/linux-arm64/piper
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Upload artifact (.deb arm64)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Nova-linux-arm64-${{ github.ref_name }}
+          path: |
+            dist_linux/*_arm64.deb
+            dist_linux/nova_ai_assistant_arm64.deb
+          if-no-files-found: error
+          compression-level: 0
+
+  # ==================== Release (attach both) ====================
   release:
-    needs: build
+    needs: [build-amd64, build-arm64]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
     steps:
-      - name: Download Linux artifact
+      - name: Download Linux artifacts
         uses: actions/download-artifact@v4
         with:
           pattern: Nova-linux-*
@@ -162,20 +220,16 @@ jobs:
           ls -laR release_assets || true
           echo "::endgroup::"
 
-      - name: Make stable-named copy (.deb) + checksums
+      - name: Make stable copies + checksums
         run: |
           set -e
           cd release_assets
-          DEB="$(find . -type f -name 'nova_ai_assistant_*_amd64.deb' | head -n1)"
-          if [ -z "$DEB" ]; then
-            echo "ERROR: no .deb found under $(pwd)"
-            exit 1
-          fi
-          cp -f "$DEB" nova_ai_assistant_amd64.deb
+          cp -f $(find . -name '*_amd64.deb' | head -n1) nova_ai_assistant_amd64.deb
+          cp -f $(find . -name '*_arm64.deb' | head -n1) nova_ai_assistant_arm64.deb
           shasum -a 256 * > SHA256SUMS.txt || true
           ls -la
 
-      - name: Create/Update GitHub Release (attach .deb)
+      - name: Create/Update GitHub Release (attach .debs)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}

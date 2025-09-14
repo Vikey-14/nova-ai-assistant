@@ -14,11 +14,14 @@ It listens to your commands, speaks in 5 languages, opens apps, takes notes, set
 - 🍎 **macOS** — [Nova_mac.pkg](https://github.com/Vikey-14/nova-ai-assistant/releases/latest/download/Nova_mac.pkg)  
   (or [Nova_mac.dmg](https://github.com/Vikey-14/nova-ai-assistant/releases/latest/download/Nova_mac.dmg))
 
-- 🐧 **Linux (Debian/Ubuntu)** — [.deb](https://github.com/Vikey-14/nova-ai-assistant/releases/latest/download/nova_ai_assistant_amd64.deb)
+- 🐧 **Linux (Debian/Ubuntu)**
+  - x86_64 (Intel/AMD PCs): [.deb — `nova_ai_assistant_amd64.deb`](https://github.com/Vikey-14/nova-ai-assistant/releases/latest/download/nova_ai_assistant_amd64.deb)
+  - ARM64 (Raspberry Pi 4/5 64-bit, ARM laptops/servers): [.deb — `nova_ai_assistant_arm64.deb`](https://github.com/Vikey-14/nova-ai-assistant/releases/latest/download/nova_ai_assistant_arm64.deb)
 
 - 🔐 **Checksums** — [SHA256SUMS.txt](https://github.com/Vikey-14/nova-ai-assistant/releases/latest/download/SHA256SUMS.txt)
 
 _All versions:_ see the **[Releases](https://github.com/Vikey-14/nova-ai-assistant/releases)** page.
+
 
 ---
 
@@ -159,18 +162,37 @@ If prompted on first run, allow Rosetta to be installed.
 <details>
 <summary>🐧 Linux (Debian/Ubuntu)</summary>
 
-**Download:**  
-[👉 nova_ai_assistant_amd64.deb](https://github.com/Vikey-14/nova-ai-assistant/releases/latest/download/nova_ai_assistant_amd64.deb)
+**Pick the right .deb for your CPU:**
+```bash
+dpkg --print-architecture
+# prints one of:
+#   amd64  → download nova_ai_assistant_amd64.deb
+#   arm64  → download nova_ai_assistant_arm64.deb
+```
+
+**Download:**
+- x86_64 / Intel/AMD PCs:  
+  [👉 nova_ai_assistant_amd64.deb](https://github.com/Vikey-14/nova-ai-assistant/releases/latest/download/nova_ai_assistant_amd64.deb)
+- ARM64 (Raspberry Pi 4/5 64-bit, ARM laptops/servers):  
+  [👉 nova_ai_assistant_arm64.deb](https://github.com/Vikey-14/nova-ai-assistant/releases/latest/download/nova_ai_assistant_arm64.deb)
 
 **Install (APT recommended):**
 ```bash
+# x86_64
 sudo apt update
 sudo apt install ./nova_ai_assistant_amd64.deb
+
+# ARM64
+sudo apt update
+sudo apt install ./nova_ai_assistant_arm64.deb
 ```
 
 *Alternative (dpkg):*
 ```bash
+# x86_64
 sudo dpkg -i nova_ai_assistant_amd64.deb || sudo apt -f install
+# ARM64
+sudo dpkg -i nova_ai_assistant_arm64.deb || sudo apt -f install
 ```
 
 **Run now:**

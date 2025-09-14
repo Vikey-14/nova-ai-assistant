@@ -26,8 +26,16 @@ else:
 PIPER_MANIFEST = str(REPO_ROOT / "third_party" / "piper" / "models_manifest.json")
 
 def _load_piper_manifest(path: str = PIPER_MANIFEST) -> dict:
-    with open(path, "r", encoding="utf-8") as f:
-        man = json.load(f)
+    # CHANGED: be tolerant if manifest is missing/invalid
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            man = json.load(f)
+    except FileNotFoundError:
+        _dbg("Piper: manifest not found; running without offline models")
+        return {"exe": {}, "models": {}}
+    except Exception as e:
+        _dbg(f"Piper: failed to load manifest: {e!r}")
+        return {"exe": {}, "models": {}}
 
     # Make model/config paths absolute (relative to bundle/repo root)
     models = man.get("models") or {}
@@ -412,7 +420,7 @@ def _pick_piper_model(manifest: dict, lang_code: str) -> Optional[dict]:
 class PiperSynth(_BaseTTS):
     def __init__(self, manifest_path: str = PIPER_MANIFEST) -> None:
         super().__init__()
-        self._manifest = _load_piper_manifest(manifest_path)
+        self._manifest = _load_piper_manifest(manifest_path)  # tolerant load
         self._exe = _resolve_piper_exe(self._manifest)
         self._bindir = os.path.dirname(self._exe) if self._exe else None
 
@@ -425,11 +433,15 @@ class PiperSynth(_BaseTTS):
 
         m = model["model"]
         c = model.get("config") or (m + ".json")
-        spk = str(model.get("speaker", 0))
+
+        # CHANGED: only pass -s when speaker > 0 (safe for single-speaker models)
+        spk = int(model.get("speaker", 0))
         fd, wav_path = tempfile.mkstemp(suffix=".wav"); os.close(fd)
 
         # Use --output_file to be robust across Piper builds
-        cmd = [self._exe, "-m", m, "-c", c, "-s", spk, "--output_file", wav_path, "-q"]
+        cmd = [self._exe, "-m", m, "-c", c, "--output_file", wav_path, "-q"]
+        if spk != 0:
+            cmd += ["-s", str(spk)]
         _dbg(f"piper: {cmd}")
 
         # Ensure bundled libs & espeak data are visible

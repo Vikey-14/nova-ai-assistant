@@ -172,7 +172,7 @@ jobs:
 
           export DYLD_LIBRARY_PATH="${BINDIR}:${DYLD_LIBRARY_PATH:-}"
           [ -f "${BINDIR}/libpiper_phonemize.dylib" ] && export PIPER_PHONEMIZE_LIBRARY="${BINDIR}/libpiper_phonemize.dylib"
-          export ESPEAK_DATA="${BINDIR}/espeak-ng-data"
+          export ESPEAK_DATA="${BINDIR}/espeak-ng-data}"
           [ ! -d "$ESPEAK_DATA" ] && export ESPEAK_DATA="$(brew --prefix)/share/espeak-ng-data"
 
           file "$BIN" || true
@@ -366,14 +366,14 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags_v') # unchanged
+    if: startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
     steps:
       - name: Set APPVER for body
         run: echo "APPVER=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
 
-      - name: Download mac artifacts
+      - name: Download mac artifacts (Intel)
         uses: actions/download-artifact@v4
         with:
           name: Nova-mac-${{ github.ref_name }}-macos-13
@@ -397,11 +397,31 @@ jobs:
         run: |
           set -euo pipefail
           cd release_assets
-          pkg=$(ls -1 macos-14/Nova_*_mac.pkg macos-13/Nova_*_mac.pkg 2>/dev/null | head -n1); cp "$pkg" Nova_mac.pkg
-          dmg=$(ls -1 macos-14/Nova_*_mac.dmg macos-13/Nova_*_mac.dmg 2>/dev/null | head -n1); cp "$dmg" Nova_mac.dmg
-          shasum -a 256 */Nova_*_mac.* Nova_mac.* 2>/dev/null > SHA256SUMS.txt || true
 
-      - name: Prepare release body 
+          # Arm64 (macOS 14) — pick first match if multiple
+          pkg_arm=$(ls -1 macos-14/Nova_*_mac.pkg 2>/dev/null | head -n1 || true)
+          dmg_arm=$(ls -1 macos-14/Nova_*_mac.dmg 2>/dev/null | head -n1 || true)
+          [ -n "${pkg_arm:-}" ] && cp -f "$pkg_arm" Nova_mac_arm64.pkg
+          [ -n "${dmg_arm:-}" ] && cp -f "$dmg_arm" Nova_mac_arm64.dmg
+
+          # x64 (macOS 13)
+          pkg_x64=$(ls -1 macos-13/Nova_*_mac.pkg 2>/dev/null | head -n1 || true)
+          dmg_x64=$(ls -1 macos-13/Nova_*_mac.dmg 2>/dev/null | head -n1 || true)
+          [ -n "${pkg_x64:-}" ] && cp -f "$pkg_x64" Nova_mac_x64.pkg
+          [ -n "${dmg_x64:-}" ] && cp -f "$dmg_x64" Nova_mac_x64.dmg
+
+          # Generic copies defaulting to Apple Silicon (arm64)
+          if [ -f Nova_mac_arm64.pkg ]; then cp -f Nova_mac_arm64.pkg Nova_mac.pkg; fi
+          if [ -f Nova_mac_arm64.dmg ]; then cp -f Nova_mac_arm64.dmg Nova_mac.dmg; fi
+
+          # Checksums for all mac assets (tolerate missing)
+          shasum -a 256 macos-14/Nova_*_mac.* macos-13/Nova_*_mac.* \
+                  Nova_mac_*.pkg Nova_mac_*.dmg Nova_mac.pkg Nova_mac.dmg \
+                  2>/dev/null > SHA256SUMS.txt || true
+
+          ls -la
+
+      - name: Prepare release body
         run: |
           set -euo pipefail
           cat > release_assets/RELEASE_BODY.md <<'EOF'
@@ -412,13 +432,14 @@ jobs:
           - Portable: **Nova_${APPVER}_windows_portable.zip**
 
           🍎 **macOS**
-          - PKG (recommended): **Nova_${APPVER}_mac.pkg**
-          - DMG: **Nova_${APPVER}_mac.dmg**
+          - Apple Silicon (**arm64**): **Nova_mac_arm64.pkg**, **Nova_mac_arm64.dmg**  
+            Generic (defaults to arm64): **Nova_mac.pkg**, **Nova_mac.dmg**
+          - Intel (**x86_64**): **Nova_mac_x64.pkg**, **Nova_mac_x64.dmg**
           - App zips: **Nova_${APPVER}_mac.app.zip**, **Nova_Tray_${APPVER}_mac.app.zip**
 
           🐧 **Linux (Debian/Ubuntu)**
-          - .deb: **nova_ai_assistant_${APPVER}-1_amd64.deb**
-            (stable copy: **nova_ai_assistant_amd64.deb**)
+          - .deb (amd64): **nova_ai_assistant_${APPVER}-1_amd64.deb**  — stable: **nova_ai_assistant_amd64.deb**
+          - .deb (arm64): **nova_ai_assistant_${APPVER}-1_arm64.deb**  — stable: **nova_ai_assistant_arm64.deb**
 
           🔐 **Checksums**
           - **SHA256SUMS.txt**
@@ -435,8 +456,8 @@ jobs:
           prerelease: false
           body_path: release_assets/RELEASE_BODY.md
           files: |
-            release_assets/Nova_*_mac.dmg
-            release_assets/Nova_*_mac.pkg
+            release_assets/Nova_mac_*.dmg
+            release_assets/Nova_mac_*.pkg
             release_assets/Nova_mac.dmg
             release_assets/Nova_mac.pkg
             release_assets/*/*_mac.app.zip
