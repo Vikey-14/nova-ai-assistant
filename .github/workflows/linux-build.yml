@@ -119,7 +119,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # NEW: create hashed.txt in this job as well
       - name: Create hashed.txt from secret
         env:
           HASHED_NAME_BLOCKLIST: ${{ secrets.HASHED_NAME_BLOCKLIST }}
@@ -143,22 +142,33 @@ jobs:
               espeak-ng espeak-ng-data libespeak-ng1 libespeak-ng-dev \
               portaudio19-dev libportaudio2 libportaudiocpp0 \
               libasound2-dev libjack-jackd2-dev \
-              ffmpeg libpulse0 desktop-file-utils python3-tk
+              ffmpeg libpulse0 desktop-file-utils python3-tk \
+              cmake ninja-build
             python3 -m pip install --upgrade pip wheel
             python3 -m pip install -r requirements.linux.txt pyinstaller
           run: |
             set -euo pipefail
 
-            # -------- Stage Piper (prebuilt, arm64) ----------
+            # -------- Build Piper from source (arm64) ----------
             HOST_DIR="third_party/piper/linux-arm64"
-            rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR" /tmp/piper_pre
-            curl -L "https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_linux_arm64.tar.gz" -o /tmp/piper.tar.gz
-            tar -xzf /tmp/piper.tar.gz -C /tmp/piper_pre
-            cp -av /tmp/piper_pre/piper "$HOST_DIR"/ && chmod +x "$HOST_DIR/piper"
-            [ -d /tmp/piper_pre/espeak-ng-data ] && cp -a /tmp/piper_pre/espeak-ng-data "$HOST_DIR"/ || true
+            rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR"
+
+            git clone --depth=1 https://github.com/rhasspy/piper.git /tmp/piper_src
+            cmake -S /tmp/piper_src -B /tmp/piper_build -DCMAKE_BUILD_TYPE=Release
+            cmake --build /tmp/piper_build --config Release -j
+
+            cp -av /tmp/piper_build/piper "$HOST_DIR/piper"
+            chmod +x "$HOST_DIR/piper"
+
+            # espeak-ng-data beside the binary (prefer from build tree; fallback to system)
+            if [ -d /tmp/piper_build/espeak-ng-data ]; then
+              cp -a /tmp/piper_build/espeak-ng-data "$HOST_DIR"/
+            elif [ -d /usr/share/espeak-ng-data ]; then
+              cp -a /usr/share/espeak-ng-data "$HOST_DIR"/
+            fi
             ls -la "$HOST_DIR" || true
 
-            # -------- NEW: ARM64 Piper smoke test ----------
+            # -------- ARM64 Piper smoke test ----------
             BIN="$HOST_DIR/piper"
             M="third_party/piper/models/en_US-ryan-medium.onnx"
             C="third_party/piper/models/en_US-ryan-medium.onnx.json"
@@ -180,7 +190,6 @@ jobs:
             ARCH=arm64 bash pack_deb.sh "${APPVER}-1" arm64
             ls -lah dist_linux | grep -E 'arm64\.deb$' || true
 
-      # NEW: upload the raw ARM64 piper so you can commit it later
       - name: Upload linux arm64 piper (raw)
         uses: actions/upload-artifact@v4
         with:
