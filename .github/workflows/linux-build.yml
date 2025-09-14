@@ -140,6 +140,8 @@ jobs:
           arch: aarch64
           distro: ubuntu22.04
           shell: /bin/bash
+          env: |                         # <-- pass env into the container
+            PIPER_REF=${{ env.PIPER_REF }}
           install: |
             apt-get -qq update
             DEBIAN_FRONTEND=noninteractive apt-get -yqq install \
@@ -153,6 +155,7 @@ jobs:
             python3 -m pip install --upgrade pip wheel
           run: |
             set -euo pipefail
+            PIPER_REF="${PIPER_REF:-v1.2.0}"   # <-- safe fallback
 
             # Now that the repo is mounted at /work, install Python deps
             python3 -m pip install -r requirements.linux.txt pyinstaller
