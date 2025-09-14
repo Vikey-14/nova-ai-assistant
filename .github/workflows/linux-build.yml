@@ -13,6 +13,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Make a filesystem-safe ref for artifact names (replace / with -)
+      - name: Sanitize ref for artifact names
+        shell: bash
+        run: echo "SAFE_REF=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_ENV"
+
       - uses: actions/cache@v4
         with:
           path: ~/.cache/pip
@@ -52,7 +57,7 @@ jobs:
           printf '%s\n' "$HASHED_NAME_BLOCKLIST" > hashed.txt
           echo "hashed.txt lines: $(wc -l < hashed.txt)"
 
-      # Use the Piper already in the repo for amd64 (no external download)
+      # Use the Piper already in the repo for amd64
       - name: Piper smoke test (repo amd64)
         run: |
           set -euo pipefail
@@ -74,7 +79,8 @@ jobs:
           pyinstaller --distpath dist_linux NOVA_Linux.spec
           ls -lah dist_linux || true
 
-      - name: Build .deb (amd64)  # <-- Debian-safe version for non-tag builds
+      - name: Build .deb (amd64)  # Debian-safe versioning for non-tag builds
+        shell: bash
         run: |
           set -euo pipefail
           if [[ "${GITHUB_REF:-}" =~ ^refs/tags/v ]]; then
@@ -99,7 +105,7 @@ jobs:
       - name: Upload artifact (.deb amd64)
         uses: actions/upload-artifact@v4
         with:
-          name: Nova-linux-amd64-${{ github.ref_name }}
+          name: Nova-linux-amd64-${{ env.SAFE_REF }}
           path: |
             dist_linux/*_amd64.deb
             dist_linux/nova_ai_assistant_amd64.deb
@@ -114,6 +120,11 @@ jobs:
       PIPER_REF: "v1.2.0"   # pin Piper source
     steps:
       - uses: actions/checkout@v4
+
+      # Same sanitization for this job
+      - name: Sanitize ref for artifact names
+        shell: bash
+        run: echo "SAFE_REF=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_ENV"
 
       - name: Create hashed.txt from secret
         env:
@@ -182,7 +193,7 @@ jobs:
             pyinstaller --distpath dist_linux NOVA_Linux.spec
             ls -lah dist_linux || true
 
-            # -------- Build .deb (arm64)  # Debian-safe version for non-tag builds ----------
+            # -------- Build .deb (arm64)  (Debian-safe versioning) ----------
             if [[ "${GITHUB_REF:-}" =~ ^refs/tags/v ]]; then
               APPVER="${GITHUB_REF_NAME#v}"
             else
@@ -197,7 +208,7 @@ jobs:
       - name: Upload linux arm64 piper (raw)
         uses: actions/upload-artifact@v4
         with:
-          name: piper-linux-arm64
+          name: piper-linux-arm64-${{ env.SAFE_REF }}
           path: third_party/piper/linux-arm64/piper
           if-no-files-found: error
           compression-level: 0
@@ -205,7 +216,7 @@ jobs:
       - name: Upload artifact (.deb arm64)
         uses: actions/upload-artifact@v4
         with:
-          name: Nova-linux-arm64-${{ github.ref_name }}
+          name: Nova-linux-arm64-${{ env.SAFE_REF }}
           path: |
             dist_linux/*_arm64.deb
             dist_linux/nova_ai_assistant_arm64.deb
