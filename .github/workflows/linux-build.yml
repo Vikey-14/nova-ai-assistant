@@ -52,31 +52,20 @@ jobs:
           printf '%s\n' "$HASHED_NAME_BLOCKLIST" > hashed.txt
           echo "hashed.txt lines: $(wc -l < hashed.txt)"
 
-      # ---------- Stage Piper (prebuilt, x86_64) ----------
-      - name: Fetch Piper prebuilt (amd64) and stage
-        run: |
-          set -euo pipefail
-          HOST_DIR="third_party/piper/linux-x64"
-          rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR" /tmp/piper_pre
-          curl -L "https://github.com/rhasspy/piper/releases/download/v1.2.0/piper_linux_x86_64.tar.gz" -o /tmp/piper.tar.gz
-          tar -xzf /tmp/piper.tar.gz -C /tmp/piper_pre
-          cp -av /tmp/piper_pre/piper "$HOST_DIR"/ && chmod +x "$HOST_DIR/piper"
-          [ -d /tmp/piper_pre/espeak-ng-data ] && cp -a /tmp/piper_pre/espeak-ng-data "$HOST_DIR"/ || true
-          ls -la "$HOST_DIR" || true
-
-      - name: Piper smoke test (optional)
+      # Use the Piper already in the repo for amd64 (no external download)
+      - name: Piper smoke test (repo amd64)
         run: |
           set -euo pipefail
           BIN="third_party/piper/linux-x64/piper"
           M="third_party/piper/models/en_US-ryan-medium.onnx"
           C="third_party/piper/models/en_US-ryan-medium.onnx.json"
           if [ -x "$BIN" ] && [ -f "$M" ] && [ -f "$C" ]; then
-            echo "Hello from Nova" | "$BIN" -m "$M" -c "$C" -s 0 -f /tmp/smoke.wav
-            test -s /tmp/smoke.wav
-            file /tmp/smoke.wav || true
-            echo "Piper smoke OK"
+            echo "Hello from Nova" | "$BIN" -m "$M" -c "$C" -s 0 -f /tmp/smoke_amd64.wav
+            test -s /tmp/smoke_amd64.wav
+            file /tmp/smoke_amd64.wav || true
+            echo "Piper amd64 smoke OK"
           else
-            echo "Models not in repo; skipping smoke."
+            echo "::warning::amd64 Piper/models missing; skipping smoke."
           fi
 
       - name: Build with PyInstaller (Linux amd64)
@@ -116,6 +105,8 @@ jobs:
   build-arm64:
     runs-on: ubuntu-latest
     needs: build-amd64
+    env:
+      PIPER_REF: "v1.2.0"   # pin the Piper source (tag or commit SHA)
     steps:
       - uses: actions/checkout@v4
 
@@ -153,14 +144,15 @@ jobs:
             HOST_DIR="third_party/piper/linux-arm64"
             rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR"
 
-            git clone --depth=1 https://github.com/rhasspy/piper.git /tmp/piper_src
+            git clone --depth=1 --branch "${PIPER_REF}" https://github.com/rhasspy/piper.git /tmp/piper_src
             cmake -S /tmp/piper_src -B /tmp/piper_build -DCMAKE_BUILD_TYPE=Release
             cmake --build /tmp/piper_build --config Release -j
 
             cp -av /tmp/piper_build/piper "$HOST_DIR/piper"
             chmod +x "$HOST_DIR/piper"
 
-            # espeak-ng-data beside the binary (prefer from build tree; fallback to system)
+            # Bundle libs/data from the build (best effort)
+            find /tmp/piper_build -type f \( -name 'libpiper*.so*' -o -name 'libespeak*.so*' \) -exec cp -av {} "$HOST_DIR"/ \; || true
             if [ -d /tmp/piper_build/espeak-ng-data ]; then
               cp -a /tmp/piper_build/espeak-ng-data "$HOST_DIR"/
             elif [ -d /usr/share/espeak-ng-data ]; then
@@ -178,7 +170,7 @@ jobs:
               file /tmp/smoke_arm64.wav || true
               echo "ARM64 Piper smoke OK"
             else
-              echo "Models missing; skipping ARM64 smoke."
+              echo "::warning::Models missing; skipping ARM64 smoke."
             fi
 
             # -------- Build Nova binaries (arm64) ----------
