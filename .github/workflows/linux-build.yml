@@ -180,7 +180,24 @@ jobs:
               exit 1
             fi
 
-            cmake -S "${SRC_DIR}" -B /tmp/piper_build -DCMAKE_BUILD_TYPE=Release
+            # ------- ONNX Runtime (CPU, Linux aarch64) --------
+            # Match your linux-x64 folder (1.14.1). Update later if you bump x64.
+            ORT_VERSION="${ORT_VERSION:-1.14.1}"
+            ORT_TGZ="onnxruntime-linux-aarch64-${ORT_VERSION}.tgz"
+            ORT_URL="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${ORT_TGZ}"
+
+            mkdir -p /opt/onnxruntime
+            curl -L --fail -o "/tmp/${ORT_TGZ}" "${ORT_URL}"
+            tar -xzf "/tmp/${ORT_TGZ}" -C /opt/onnxruntime --strip-components=1
+
+            # Tell CMake/runtime where ORT lives
+            export ONNXRUNTIME_DIR="/opt/onnxruntime"
+            export LD_LIBRARY_PATH="/opt/onnxruntime/lib:${LD_LIBRARY_PATH:-}"
+
+            # ----- Piper configure/build (add the hint) -----
+            cmake -S "${SRC_DIR}" -B /tmp/piper_build \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DONNXRUNTIME_DIR="$ONNXRUNTIME_DIR"
             cmake --build /tmp/piper_build --config Release -j
 
             # Find produced 'piper' binary and copy it
@@ -191,6 +208,9 @@ jobs:
               [ -n "$BIN_CANDIDATE" ] && cp -av "$BIN_CANDIDATE" "$HOST_DIR/piper"
             fi
             chmod +x "$HOST_DIR/piper"
+
+            # Bundle ONNX Runtime .so beside piper for runtime portability
+            cp -av "$ONNXRUNTIME_DIR"/lib/libonnxruntime.so* "$HOST_DIR/" 2>/dev/null || true
 
             # Bundle libs/data from the build (best effort)
             find /tmp/piper_build -type f \( -name 'libpiper*.so*' -o -name 'libespeak*.so*' \) -exec cp -av {} "$HOST_DIR"/ \; || true
