@@ -140,8 +140,8 @@ jobs:
           arch: aarch64
           distro: ubuntu22.04
           shell: /bin/bash
-          env: |
-            PIPER_REF: ${{ env.PIPER_REF }}   # <- **block string**, not a map
+          # Pass a flat map as a **single quoted string** (helps VS Code, too)
+          env: "PIPER_REF: ${{ env.PIPER_REF }}"
           install: |
             apt-get -qq update
             DEBIAN_FRONTEND=noninteractive apt-get -yqq install \
@@ -151,7 +151,8 @@ jobs:
               portaudio19-dev libportaudio2 libportaudiocpp0 \
               libasound2-dev libjack-jackd2-dev \
               ffmpeg libpulse0 desktop-file-utils python3-tk \
-              cmake ninja-build
+              cmake ninja-build \
+              libspdlog-dev libfmt-dev
             python3 -m pip install --upgrade pip wheel
           run: |
             set -euo pipefail
