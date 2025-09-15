@@ -15,7 +15,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Sanitize ref for artifact names (replace / with -)
       - name: Sanitize ref for artifact names
         shell: bash
         run: echo "SAFE_REF=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_ENV"
@@ -59,7 +58,6 @@ jobs:
           printf '%s\n' "$HASHED_NAME_BLOCKLIST" > hashed.txt
           echo "hashed.txt lines: $(wc -l < hashed.txt)"
 
-      # Use the Piper already in the repo for amd64
       - name: Piper smoke test (repo amd64)
         run: |
           set -euo pipefail
@@ -177,10 +175,16 @@ jobs:
             HOST_DIR="third_party/piper/linux-arm64"
             rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR"
 
-            # Clone Piper WITH submodules
-            git clone --recurse-submodules https://github.com/rhasspy/piper.git /tmp/piper_src
+            # Full clone, then tag checkout, then force/sync submodules
+            git clone https://github.com/rhasspy/piper.git /tmp/piper_src
             git -C /tmp/piper_src checkout "${PIPER_REF}"
-            git -C /tmp/piper_src submodule update --init --recursive
+            git -C /tmp/piper_src submodule sync --recursive
+            git -C /tmp/piper_src submodule update --init --recursive --checkout --force
+
+            echo "---- .gitmodules ----"
+            cat /tmp/piper_src/.gitmodules || true
+            echo "---- submodule status ----"
+            git -C /tmp/piper_src submodule status || true
 
             # Autodetect CMake root
             if [ -f /tmp/piper_src/CMakeLists.txt ]; then
@@ -207,7 +211,7 @@ jobs:
             fi
             echo "Found phoneme_ids.hpp at: ${PHONEME_HPP}"
 
-            # Add includes; also copy the header beside sources as a fallback
+            # Add includes and fallback-copy header beside Piper sources
             CXXFLAGS="-I${INC1} -I${INC2} -I${PHONEME_DIR}"
             cp -fv "${PHONEME_HPP}" /tmp/piper_src/src/cpp/ || true
 
