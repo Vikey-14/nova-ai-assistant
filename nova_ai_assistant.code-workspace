@@ -1,14 +1,43 @@
 {
-  "folders": [
-    { "path": "." }
-  ],
+  "folders": [{ "path": "." }],
   "settings": {
     "terminal.integrated.cwd": "C:\\Users\\user\\Documents\\nova_ai_assistant",
     "python.languageServer": "Pylance",
+
     "python.defaultInterpreterPath": "${workspaceFolder}\\.venv\\Scripts\\python.exe",
+    "python.envFile": "${workspaceFolder}\\.env",
     "python.terminal.activateEnvironment": true,
+
+    "python.analysis.typeCheckingMode": "off",
+    "python.analysis.diagnosticMode": "workspace",
+    "python.analysis.exclude": [
+      "build",
+      "dist",
+      "dist_linux",
+      "**/__pycache__",
+      ".venv",
+      ".venv_wsl"
+    ],
     "python.analysis.diagnosticSeverityOverrides": {
-      "reportMissingModuleSource": "none"
+      "reportMissingModuleSource": "none",
+      "reportOptionalMemberAccess": "none",
+      "reportAttributeAccessIssue": "none",
+      "reportUnknownVariableType": "none",
+      "reportUnknownMemberType": "none"
+    },
+
+    "yaml.validate": true,
+    "yaml.customTags": ["mapping"],
+    "yaml.schemas": {
+      "https://json.schemastore.org/github-workflow.json": [
+        ".github/workflows/*.yml",
+        ".github/workflows/*.yaml"
+      ]
+    },
+
+    "[yaml]": {
+      "editor.defaultFormatter": "redhat.vscode-yaml",
+      "editor.formatOnSave": true
     }
   }
 }

@@ -79,7 +79,7 @@ jobs:
           pyinstaller --distpath dist_linux NOVA_Linux.spec
           ls -lah dist_linux || true
 
-      - name: Build .deb (amd64)  # Debian-safe versioning for non-tag builds
+      - name: Build .deb (amd64) # Debian-safe versioning for non-tag builds
         shell: bash
         run: |
           set -euo pipefail
@@ -117,7 +117,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build-amd64
     env:
-      PIPER_REF: "v1.2.0"   # pin Piper source
+      PIPER_REF: "v1.2.0" # pin Piper source tag/commit (change if needed)
     steps:
       - uses: actions/checkout@v4
 
@@ -140,8 +140,8 @@ jobs:
           arch: aarch64
           distro: ubuntu22.04
           shell: /bin/bash
-          env: |
-            PIPER_REF: ${{ env.PIPER_REF }}    # <-- MUST be KEY: value
+          env:
+            PIPER_REF: ${{ env.PIPER_REF }}
           install: |
             apt-get -qq update
             DEBIAN_FRONTEND=noninteractive apt-get -yqq install \
@@ -157,7 +157,7 @@ jobs:
             set -euo pipefail
             : "${PIPER_REF:=v1.2.0}"   # safe fallback
 
-            # Now that the repo is mounted, install Python deps inside the container
+            # Install Python deps *after* repo is mounted
             python3 -m pip install -r requirements.linux.txt pyinstaller
 
             # -------- Build Piper from source (arm64) ----------
@@ -165,10 +165,30 @@ jobs:
             rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR"
 
             git clone --depth=1 --branch "${PIPER_REF}" https://github.com/rhasspy/piper.git /tmp/piper_src
-            cmake -S /tmp/piper_src -B /tmp/piper_build -DCMAKE_BUILD_TYPE=Release
+
+            # Autodetect where CMakeLists.txt lives (repo layout can vary)
+            if [ -f /tmp/piper_src/CMakeLists.txt ]; then
+              SRC_DIR=/tmp/piper_src
+            elif [ -f /tmp/piper_src/src/CMakeLists.txt ]; then
+              SRC_DIR=/tmp/piper_src/src
+            elif [ -f /tmp/piper_src/src/cpp/CMakeLists.txt ]; then
+              SRC_DIR=/tmp/piper_src/src/cpp
+            else
+              echo "::error::No CMakeLists.txt found in piper repo" >&2
+              ls -la /tmp/piper_src || true
+              exit 1
+            fi
+
+            cmake -S "${SRC_DIR}" -B /tmp/piper_build -DCMAKE_BUILD_TYPE=Release
             cmake --build /tmp/piper_build --config Release -j
 
-            cp -av /tmp/piper_build/piper "$HOST_DIR/piper"
+            # Find produced 'piper' binary
+            if [ -x /tmp/piper_build/piper ]; then
+              cp -av /tmp/piper_build/piper "$HOST_DIR/piper"
+            else
+              BIN_CANDIDATE="$(find /tmp/piper_build -maxdepth 3 -type f -name piper -perm -111 | head -n1 || true)"
+              [ -n "$BIN_CANDIDATE" ] && cp -av "$BIN_CANDIDATE" "$HOST_DIR/piper"
+            fi
             chmod +x "$HOST_DIR/piper"
 
             # Bundle libs/data from the build (best effort)

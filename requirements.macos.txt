@@ -26,6 +26,7 @@ wikipedia
 beautifulsoup4
 dateparser
 python-dateutil
+holidays
 
 # --- Math / Plotting ---
 numpy>=2.0
