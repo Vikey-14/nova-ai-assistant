@@ -118,7 +118,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PIPER_REF: "v1.2.0" # Piper tag
-      PIPER_PHONEMIZE_VER: "v1.1.0" # piper-phonemize tag (repo tag)
+      PIPER_PHONEMIZE_TAG: "v1.1.0" # piper-phonemize repo tag (NOT the PyPI wheel)
     steps:
       - uses: actions/checkout@v4
 
@@ -141,10 +141,10 @@ jobs:
           arch: aarch64
           distro: ubuntu22.04
           shell: /bin/bash
-          # IMPORTANT: pass env as a SINGLE multiline string
+          # env must be a single multiline string
           env: |
             PIPER_REF: ${{ env.PIPER_REF }}
-            PIPER_PHONEMIZE_VER: ${{ env.PIPER_PHONEMIZE_VER }}
+            PIPER_PHONEMIZE_TAG: ${{ env.PIPER_PHONEMIZE_TAG }}
           install: |
             apt-get -qq update
             DEBIAN_FRONTEND=noninteractive apt-get -yqq install \
@@ -160,7 +160,7 @@ jobs:
           run: |
             set -euo pipefail
             : "${PIPER_REF:=v1.2.0}"
-            : "${PIPER_PHONEMIZE_VER:=v1.1.0}"
+            : "${PIPER_PHONEMIZE_TAG:=v1.1.0}"
 
             # Python deps after repo mount:
             # Avoid building PyAudio from pip on ARM (use apt's python3-pyaudio instead)
@@ -174,27 +174,38 @@ jobs:
             curl -L --fail -o /tmp/onnxruntime.tgz \
               "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-aarch64-${ORT_VERSION}.tgz"
             tar -xzf /tmp/onnxruntime.tgz -C "${ORT_ROOT}" --strip-components=1
+
             INC1="${ORT_ROOT}/include"
             INC2="${ORT_ROOT}/include/onnxruntime/core/session"
             LIBDIR="${ORT_ROOT}/lib"
+
+            # Export include/lib paths so both CMake and the compiler can see them
+            export CPLUS_INCLUDE_PATH="${INC1}:${INC2}:${CPLUS_INCLUDE_PATH:-}"
+            export LIBRARY_PATH="${LIBDIR}:${LIBRARY_PATH:-}"
             export LD_LIBRARY_PATH="${LIBDIR}:${LD_LIBRARY_PATH:-}"
+            export PKG_CONFIG_PATH="${LIBDIR}/pkgconfig:${PKG_CONFIG_PATH:-}"
 
             # -------- Clone sources --------
             HOST_DIR="third_party/piper/linux-arm64"
             rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR"
 
-            # Piper (no submodules; we'll build phonemize ourselves)
+            # Piper (no submodules; we build phonemize separately)
             git clone --depth=1 --branch "${PIPER_REF}" https://github.com/rhasspy/piper.git /tmp/piper_src
 
             # piper-phonemize (build the library + use its headers)
-            git clone --depth=1 --branch "${PIPER_PHONEMIZE_VER}" https://github.com/rhasspy/piper-phonemize.git /tmp/piper_ph
+            git clone --depth=1 --branch "${PIPER_PHONEMIZE_TAG}" https://github.com/rhasspy/piper-phonemize.git /tmp/piper_ph
 
-            cmake -S /tmp/piper_ph -B /tmp/piper_ph_build -DCMAKE_BUILD_TYPE=Release
+            # Tell piper-phonemize where ONNX Runtime is via CMake
+            cmake -S /tmp/piper_ph -B /tmp/piper_ph_build \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_PREFIX_PATH="${ORT_ROOT};${ORT_ROOT}/lib/cmake" \
+              -DONNXRUNTIME_ROOT="${ORT_ROOT}" \
+              -Donnxruntime_DIR="${ORT_ROOT}/lib/cmake/onnxruntime"
             cmake --build /tmp/piper_ph_build --config Release -j
 
             PHONEME_HPP="$(find /tmp/piper_ph -type f -name phoneme_ids.hpp -print -quit || true)"
             PHONEME_DIR="$(dirname "${PHONEME_HPP}")"
-            PHONEME_LIB="$(find /tmp/piper_ph_build -type f -name 'libpiper_phonemize.*' -print -quit || true)"
+            PHONEME_LIB="$(find /tmp/piper_ph_build -type f -name 'libpiper_phonemize.so*' -print -quit || true)"
 
             if [ -z "${PHONEME_HPP}" ] || [ ! -f "${PHONEME_HPP}" ]; then
               echo "::error::phoneme_ids.hpp not found in piper-phonemize repo"
@@ -215,7 +226,8 @@ jobs:
             CXXFLAGS="-I${INC1} -I${INC2} -I${PHONEME_DIR}"
             cp -fv "${PHONEME_HPP}" /tmp/piper_src/src/cpp/ || true
 
-            LDFLAGS="-L${LIBDIR} -L$(dirname "${PHONEME_LIB}") -lonnxruntime -lpiper_phonemize"
+            # Link against ONNX + piper-phonemize; add rpath so side-by-side libs work
+            LDFLAGS="-L${LIBDIR} -L$(dirname "${PHONEME_LIB}") -Wl,-rpath,'$$ORIGIN' -lonnxruntime -lpiper_phonemize"
 
             # CMake root
             if [ -f /tmp/piper_src/CMakeLists.txt ]; then
