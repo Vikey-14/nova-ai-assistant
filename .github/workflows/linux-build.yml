@@ -49,15 +49,6 @@ jobs:
           python -m pip install --upgrade pip wheel
           pip install -r requirements.linux.txt pyinstaller
 
-      - name: Create hashed.txt from secret
-        env:
-          HASHED_NAME_BLOCKLIST: ${{ secrets.HASHED_NAME_BLOCKLIST }}
-        run: |
-          set -euo pipefail
-          [ -n "${HASHED_NAME_BLOCKLIST:-}" ] || { echo "::error::HASHED_NAME_BLOCKLIST is empty"; exit 1; }
-          printf '%s\n' "$HASHED_NAME_BLOCKLIST" > hashed.txt
-          echo "hashed.txt lines: $(wc -l < hashed.txt)"
-
       # Use the Piper already in the repo for amd64
       - name: Piper smoke test (repo amd64)
         run: |
@@ -160,23 +151,11 @@ jobs:
             : "${PIPER_REF:=v1.2.0}"
             : "${PIPER_PHONEMIZE_TAG:=v1.1.0}"
 
-            # Python deps after repo mount (avoid PyAudio from pip on ARM)
+            # ---- Python deps (avoid building PyAudio from pip)
             grep -vi '^pyaudio' requirements.linux.txt > /tmp/req_arm.txt
             python3 -m pip install -r /tmp/req_arm.txt pyinstaller
 
-            # -------- Build eSpeak-NG 1.52 from source (newer API) --------
-            ESPEAK_TAG="1.52.0"
-            git clone --depth=1 --branch "${ESPEAK_TAG}" https://github.com/espeak-ng/espeak-ng.git /tmp/espeak
-            meson setup /tmp/espeak/build --buildtype=release -Dprefix=/usr/local -Dsonic=disabled
-            ninja -C /tmp/espeak/build
-            ninja -C /tmp/espeak/build install
-            ldconfig
-            # Make sure pkg-config can see /usr/local
-            export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
-            export CPLUS_INCLUDE_PATH="/usr/local/include:${CPLUS_INCLUDE_PATH:-}"
-            export LIBRARY_PATH="/usr/local/lib:${LIBRARY_PATH:-}"
-
-            # -------- ONNX Runtime (CPU, Linux aarch64) --------
+            # ---- ONNX Runtime (CPU, aarch64)
             ORT_VERSION="${ORT_VERSION:-1.14.1}"
             ORT_ROOT="/opt/onnxruntime"
             mkdir -p "${ORT_ROOT}"
@@ -189,28 +168,31 @@ jobs:
             export CPLUS_INCLUDE_PATH="${INC1}:${INC2}:${CPLUS_INCLUDE_PATH:-}"
             export LIBRARY_PATH="${LIBDIR}:${LIBRARY_PATH:-}"
             export LD_LIBRARY_PATH="${LIBDIR}:${LD_LIBRARY_PATH:-}"
-            export PKG_CONFIG_PATH="${LIBDIR}/pkgconfig:${PKG_CONFIG_PATH:-}"
 
-            # -------- Clone sources --------
-            HOST_DIR="third_party/piper/linux-arm64"
-            rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR"
+            # ---- eSpeak-NG from source (needs Meson; provides newer API)
+            ESRC="/tmp/espeak_src"
+            EBLD="/tmp/espeak_build"
+            git clone --depth=1 https://github.com/espeak-ng/espeak-ng.git "${ESRC}"
+            meson setup "${EBLD}" "${ESRC}" --buildtype=release -Dsonic=disabled
+            ninja -C "${EBLD}"
+            ninja -C "${EBLD}" install
+            ldconfig
+            export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
 
-            git clone --depth=1 --branch "${PIPER_REF}" https://github.com/rhasspy/piper.git /tmp/piper_src
+            # ---- piper-phonemize (build lib + headers)
             git clone --depth=1 --branch "${PIPER_PHONEMIZE_TAG}" https://github.com/rhasspy/piper-phonemize.git /tmp/piper_ph
-
-            # Build piper-phonemize with explicit ONNX and eSpeak-NG visibility
             cmake -S /tmp/piper_ph -B /tmp/piper_ph_build \
               -DCMAKE_BUILD_TYPE=Release \
-              -DCMAKE_PREFIX_PATH="/usr/local;${ORT_ROOT};${ORT_ROOT}/lib/cmake" \
-              -DONNXRUNTIME_ROOT="${ORT_ROOT}" \
-              -Donnxruntime_DIR="${ORT_ROOT}/lib/cmake/onnxruntime"
+              -DCMAKE_PREFIX_PATH="${ORT_ROOT}" \
+              -DONNXRUNTIME_ROOT="${ORT_ROOT}"
             cmake --build /tmp/piper_ph_build --config Release -j
 
             PHONEME_HPP="$(find /tmp/piper_ph -type f -name phoneme_ids.hpp -print -quit || true)"
             PHONEME_DIR="$(dirname "${PHONEME_HPP}")"
-            PHONEME_LIB="$(find /tmp/piper_ph_build -type f -name 'libpiper_phonemize.so*' -print -quit || true)"
+            PHONEME_LIB="$(find /tmp/piper_ph_build -type f -name 'libpiper_phonemize.*' -print -quit || true)"
+
             if [ -z "${PHONEME_HPP}" ] || [ ! -f "${PHONEME_HPP}" ]; then
-              echo "::error::phoneme_ids.hpp not found in piper-phonemize repo"
+              echo "::error::phoneme_ids.hpp not found in piper-phonemize"
               exit 1
             fi
             if [ -z "${PHONEME_LIB}" ] || [ ! -f "${PHONEME_LIB}" ]; then
@@ -223,17 +205,28 @@ jobs:
             echo "Using header: ${PHONEME_HPP}"
             echo "Using library: ${PHONEME_LIB}"
 
-            # -------- Build Piper (arm64) ----------
+            # ---- Piper (arm64)
+            HOST_DIR="third_party/piper/linux-arm64"
+            rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR"
+
+            git clone --depth=1 --branch "${PIPER_REF}" https://github.com/rhasspy/piper.git /tmp/piper_src
+
+            # Include dirs and link flags
             CXXFLAGS="-I${INC1} -I${INC2} -I${PHONEME_DIR}"
             cp -fv "${PHONEME_HPP}" /tmp/piper_src/src/cpp/ || true
-            LDFLAGS="-L${LIBDIR} -L$(dirname "${PHONEME_LIB}") -Wl,-rpath,'$$ORIGIN' -lonnxruntime -lpiper_phonemize"
+            LDFLAGS="-L${LIBDIR} -L$(dirname "${PHONEME_LIB}") -lonnxruntime -lpiper_phonemize"
 
+            # Detect CMake root
             if [ -f /tmp/piper_src/CMakeLists.txt ]; then
               SRC_DIR=/tmp/piper_src
             elif [ -f /tmp/piper_src/src/CMakeLists.txt ]; then
               SRC_DIR=/tmp/piper_src/src
-            else
+            elif [ -f /tmp/piper_src/src/cpp/CMakeLists.txt ]; then
               SRC_DIR=/tmp/piper_src/src/cpp
+            else
+              echo "::error::No CMakeLists.txt found in piper repo" >&2
+              ls -la /tmp/piper_src || true
+              exit 1
             fi
 
             cmake -S "${SRC_DIR}" -B /tmp/piper_build \
@@ -242,7 +235,6 @@ jobs:
               -DCMAKE_EXE_LINKER_FLAGS="${LDFLAGS}"
             cmake --build /tmp/piper_build --config Release -j
 
-            # Copy the 'piper' binary out
             if [ -x /tmp/piper_build/piper ]; then
               cp -av /tmp/piper_build/piper "$HOST_DIR/piper"
             else
@@ -251,19 +243,19 @@ jobs:
             fi
             chmod +x "$HOST_DIR/piper"
 
-            # Bundle ONNX Runtime .so + piper-phonemize lib beside piper for runtime portability
+            # Bundle ONNX + phonemize lib next to piper
             cp -av "${LIBDIR}"/libonnxruntime.so* "$HOST_DIR/" 2>/dev/null || true
             cp -av "${PHONEME_LIB}" "$HOST_DIR/" 2>/dev/null || true
 
-            # Quick link check
+            # Link check
             LD_LIBRARY_PATH="$HOST_DIR:${LD_LIBRARY_PATH:-}" "$HOST_DIR/piper" -h >/dev/null || true
             echo "piper (arm64) links OK"
 
-            # -------- Build Nova binaries (arm64) ----------
+            # ---- Build Nova (arm64)
             pyinstaller --distpath dist_linux NOVA_Linux.spec
             ls -lah dist_linux || true
 
-            # -------- Build .deb (arm64) ----------
+            # ---- Build .deb (arm64)
             if [[ "${GITHUB_REF:-}" =~ ^refs/tags/v ]]; then
               APPVER="${GITHUB_REF_NAME#v}"
             else
