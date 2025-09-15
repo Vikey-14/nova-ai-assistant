@@ -118,7 +118,7 @@ jobs:
   build-arm64:
     runs-on: ubuntu-latest
     env:
-      PIPER_REF: "v1.2.0" # pin Piper tag/commit (change if needed)
+      PIPER_REF: "v1.2.0"
     steps:
       - uses: actions/checkout@v4
 
@@ -148,7 +148,7 @@ jobs:
               build-essential python3 python3-dev python3-pip pkg-config git curl \
               libsndfile1 libsndfile1-dev \
               espeak-ng espeak-ng-data libespeak-ng1 libespeak-ng-dev \
-              portaudio19-dev libportaudio2 libportaudiocpp0 \
+              portaudio19-dev libportaudio2 libportaudiocpp0 python3-pyaudio \
               libasound2-dev libjack-jackd2-dev \
               ffmpeg libpulse0 desktop-file-utils python3-tk \
               cmake ninja-build \
@@ -158,18 +158,16 @@ jobs:
             set -euo pipefail
             : "${PIPER_REF:=v1.2.0}"
 
-            # Python deps after repo mount
+            # Python deps after repo mount (PyAudio already satisfied by apt)
             python3 -m pip install -r requirements.linux.txt pyinstaller
 
             # -------- ONNX Runtime (CPU, Linux aarch64) --------
-            # Match your x64 tree (1.14.1). Update later if you bump x64.
             ORT_VERSION="${ORT_VERSION:-1.14.1}"
             ORT_ROOT="/opt/onnxruntime"
             mkdir -p "${ORT_ROOT}"
             curl -L --fail -o /tmp/onnxruntime.tgz \
               "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-aarch64-${ORT_VERSION}.tgz"
             tar -xzf /tmp/onnxruntime.tgz -C "${ORT_ROOT}" --strip-components=1
-
             INC1="${ORT_ROOT}/include"
             INC2="${ORT_ROOT}/include/onnxruntime/core/session"
             LIBDIR="${ORT_ROOT}/lib"
@@ -179,9 +177,9 @@ jobs:
             HOST_DIR="third_party/piper/linux-arm64"
             rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR"
 
-            # Clone Piper WITH submodules
-            git clone --depth=1 --branch "${PIPER_REF}" --recurse-submodules \
-              https://github.com/rhasspy/piper.git /tmp/piper_src
+            # Clone Piper WITH submodules (no shallow, to avoid submodule pin issues)
+            git clone --recurse-submodules https://github.com/rhasspy/piper.git /tmp/piper_src
+            git -C /tmp/piper_src checkout "${PIPER_REF}"
             git -C /tmp/piper_src submodule update --init --recursive
 
             # Autodetect where CMakeLists.txt lives
@@ -197,22 +195,17 @@ jobs:
               exit 1
             fi
 
-            # ---- Locate piper-phonemize headers & add to include path ----
-            PH_BASE=""
-            for cand in "/tmp/piper_src/deps/piper-phonemize" "/tmp/piper_src/piper-phonemize" "/tmp/piper_src/submodules/piper-phonemize"; do
-              if [ -d "$cand/include/piper-phonemize" ]; then PH_BASE="$cand"; break; fi
-            done
-            if [ -z "$PH_BASE" ]; then
-              echo "::error::piper-phonemize submodule not found (needed for phoneme_ids.hpp)"
-              git -C /tmp/piper_src submodule status || true
-              ls -la /tmp/piper_src || true
+            # Find phoneme_ids.hpp and add its folder to includes
+            PHONEME_DIR="$(dirname "$(find /tmp/piper_src -type f -name phoneme_ids.hpp -print -quit || true)")"
+            if [ -z "$PHONEME_DIR" ]; then
+              echo "::group::piper tree"
+              ls -laR /tmp/piper_src | sed 's/^/  /'
+              echo "::endgroup::"
+              echo "::error::piper-phonemize header (phoneme_ids.hpp) not found; submodules may be missing."
               exit 1
             fi
-            PH_INC="${PH_BASE}/include/piper-phonemize"
-            echo "Using piper-phonemize headers at: ${PH_INC}"
 
-            # Pass ORT + piper-phonemize include/lib flags to CMake
-            CXXFLAGS="-I${INC1} -I${INC2} -I${PH_INC}"
+            CXXFLAGS="-I${INC1} -I${INC2} -I${PHONEME_DIR}"
             LDFLAGS="-L${LIBDIR} -lonnxruntime"
 
             cmake -S "${SRC_DIR}" -B /tmp/piper_build \
@@ -234,18 +227,9 @@ jobs:
             # Bundle ONNX Runtime .so beside piper for runtime portability
             cp -av "${LIBDIR}"/libonnxruntime.so* "$HOST_DIR/" 2>/dev/null || true
 
-            # Quick link-time sanity check
+            # Quick link check
             LD_LIBRARY_PATH="$HOST_DIR:${LD_LIBRARY_PATH:-}" "$HOST_DIR/piper" -h >/dev/null || true
             echo "piper (arm64) links OK"
-
-            # Bundle libs/data from the build (best effort)
-            find /tmp/piper_build -type f \( -name 'libpiper*.so*' -o -name 'libespeak*.so*' \) -exec cp -av {} "$HOST_DIR"/ \; || true
-            if [ -d /tmp/piper_build/espeak-ng-data ]; then
-              cp -a /tmp/piper_build/espeak-ng-data "$HOST_DIR"/
-            elif [ -d /usr/share/espeak-ng-data ]; then
-              cp -a /usr/share/espeak-ng-data "$HOST_DIR"/
-            fi
-            ls -la "$HOST_DIR" || true
 
             # -------- Build Nova binaries (arm64) ----------
             pyinstaller --distpath dist_linux NOVA_Linux.spec
