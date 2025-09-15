@@ -118,7 +118,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PIPER_REF: "v1.2.0" # Piper tag
-      PIPER_PHONEMIZE_VER: "v1.1.0" # piper-phonemize tag (repo tag, not a PyPI wheel)
+      PIPER_PHONEMIZE_VER: "v1.1.0" # piper-phonemize tag (repo tag)
     steps:
       - uses: actions/checkout@v4
 
@@ -141,7 +141,7 @@ jobs:
           arch: aarch64
           distro: ubuntu22.04
           shell: /bin/bash
-          # pass env as a single multiline string
+          # IMPORTANT: pass env as a SINGLE multiline string
           env: |
             PIPER_REF: ${{ env.PIPER_REF }}
             PIPER_PHONEMIZE_VER: ${{ env.PIPER_PHONEMIZE_VER }}
@@ -155,15 +155,15 @@ jobs:
               libasound2-dev libjack-jackd2-dev \
               ffmpeg libpulse0 desktop-file-utils python3-tk \
               cmake ninja-build \
-              libspdlog-dev libfmt-dev \
-              libicu-dev nlohmann-json3-dev
+              libspdlog-dev libfmt-dev
             python3 -m pip install --upgrade pip wheel
           run: |
             set -euo pipefail
             : "${PIPER_REF:=v1.2.0}"
             : "${PIPER_PHONEMIZE_VER:=v1.1.0}"
 
-            # Python deps after repo mount (avoid building PyAudio from pip)
+            # Python deps after repo mount:
+            # Avoid building PyAudio from pip on ARM (use apt's python3-pyaudio instead)
             grep -vi '^pyaudio' requirements.linux.txt > /tmp/req_arm.txt
             python3 -m pip install -r /tmp/req_arm.txt pyinstaller
 
@@ -179,53 +179,43 @@ jobs:
             LIBDIR="${ORT_ROOT}/lib"
             export LD_LIBRARY_PATH="${LIBDIR}:${LD_LIBRARY_PATH:-}"
 
-            # -------- Clone Piper + piper-phonemize --------
+            # -------- Clone sources --------
             HOST_DIR="third_party/piper/linux-arm64"
             rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR"
 
+            # Piper (no submodules; we'll build phonemize ourselves)
             git clone --depth=1 --branch "${PIPER_REF}" https://github.com/rhasspy/piper.git /tmp/piper_src
+
+            # piper-phonemize (build the library + use its headers)
             git clone --depth=1 --branch "${PIPER_PHONEMIZE_VER}" https://github.com/rhasspy/piper-phonemize.git /tmp/piper_ph
 
-            # Build piper-phonemize (creates libpiper_phonemize.{so,a})
-            cmake -S /tmp/piper_ph -B /tmp/piper_ph/build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON
-            cmake --build /tmp/piper_ph/build -j
+            cmake -S /tmp/piper_ph -B /tmp/piper_ph_build -DCMAKE_BUILD_TYPE=Release
+            cmake --build /tmp/piper_ph_build --config Release -j
 
-            # Locate header + library
-            PH_INC="$(dirname "$(find /tmp/piper_ph -type f -name phoneme_ids.hpp -print -quit)")"
-            PH_LIB="$(find /tmp/piper_ph/build -type f -name 'libpiper_phonemize.so*' -print -quit || true)"
-            if [ -z "${PH_LIB}" ]; then
-              PH_LIB="$(find /tmp/piper_ph/build -type f -name 'libpiper_phonemize.a' -print -quit || true)"
-            fi
-            PH_LIBDIR="$(dirname "${PH_LIB:-/tmp/none}")"
+            PHONEME_HPP="$(find /tmp/piper_ph -type f -name phoneme_ids.hpp -print -quit || true)"
+            PHONEME_DIR="$(dirname "${PHONEME_HPP}")"
+            PHONEME_LIB="$(find /tmp/piper_ph_build -type f -name 'libpiper_phonemize.*' -print -quit || true)"
 
-            if [ -z "${PH_INC}" ] || [ ! -f "${PH_INC}/phoneme_ids.hpp" ]; then
-              echo "::error::phoneme_ids.hpp not found after building piper-phonemize"
+            if [ -z "${PHONEME_HPP}" ] || [ ! -f "${PHONEME_HPP}" ]; then
+              echo "::error::phoneme_ids.hpp not found in piper-phonemize repo"
               exit 1
             fi
-            if [ -z "${PH_LIB}" ]; then
-              echo "::group::piper-phonemize build tree"
-              ls -laR /tmp/piper_ph/build | sed 's/^/  /' || true
+            if [ -z "${PHONEME_LIB}" ] || [ ! -f "${PHONEME_LIB}" ]; then
+              echo "::group::piper-phonemize build tree (debug)"
+              ls -laR /tmp/piper_ph_build | sed 's/^/  /' || true
               echo "::endgroup::"
-              echo "::error::libpiper_phonemize not produced"
+              echo "::error::libpiper_phonemize not built"
               exit 1
             fi
-
-            echo "PH_INC=${PH_INC}"
-            echo "PH_LIB=${PH_LIB}"
-            echo "PH_LIBDIR=${PH_LIBDIR}"
-
-            # Make compiler & linker look in correct places
-            export CPLUS_INCLUDE_PATH="${INC1}:${INC2}:${PH_INC}:${CPLUS_INCLUDE_PATH:-}"
-            export LIBRARY_PATH="${LIBDIR}:${PH_LIBDIR}:${LIBRARY_PATH:-}"
-            export LD_LIBRARY_PATH="${LIBDIR}:${PH_LIBDIR}:${LD_LIBRARY_PATH:-}"
+            echo "Using header: ${PHONEME_HPP}"
+            echo "Using library: ${PHONEME_LIB}"
 
             # -------- Configure + Build Piper (arm64) ----------
             # Add includes (ORT + phonemize); also place the header next to sources as a fallback
-            CXXFLAGS="-I${INC1} -I${INC2} -I${PH_INC}"
-            cp -fv "${PH_INC}/phoneme_ids.hpp" /tmp/piper_src/src/cpp/ || true
+            CXXFLAGS="-I${INC1} -I${INC2} -I${PHONEME_DIR}"
+            cp -fv "${PHONEME_HPP}" /tmp/piper_src/src/cpp/ || true
 
-            # Link flags: ONNXRuntime + piper-phonemize + rpath to $ORIGIN
-            LDFLAGS="-L${LIBDIR} -L${PH_LIBDIR} -lonnxruntime -lpiper_phonemize -Wl,-rpath,'$$ORIGIN'"
+            LDFLAGS="-L${LIBDIR} -L$(dirname "${PHONEME_LIB}") -lonnxruntime -lpiper_phonemize"
 
             # CMake root
             if [ -f /tmp/piper_src/CMakeLists.txt ]; then
@@ -243,8 +233,7 @@ jobs:
             cmake -S "${SRC_DIR}" -B /tmp/piper_build \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_CXX_FLAGS="${CXXFLAGS}" \
-              -DCMAKE_EXE_LINKER_FLAGS="${LDFLAGS}" \
-              -DCMAKE_BUILD_RPATH="$HOST_DIR"
+              -DCMAKE_EXE_LINKER_FLAGS="${LDFLAGS}"
 
             cmake --build /tmp/piper_build --config Release -j
 
@@ -257,9 +246,9 @@ jobs:
             fi
             chmod +x "$HOST_DIR/piper"
 
-            # Bundle libs for runtime portability
+            # Bundle ONNX Runtime .so + piper-phonemize lib beside piper for runtime portability
             cp -av "${LIBDIR}"/libonnxruntime.so* "$HOST_DIR/" 2>/dev/null || true
-            cp -av "${PH_LIBDIR}"/libpiper_phonemize.so* "$HOST_DIR/" 2>/dev/null || true
+            cp -av "${PHONEME_LIB}" "$HOST_DIR/" 2>/dev/null || true
 
             # Quick link check
             LD_LIBRARY_PATH="$HOST_DIR:${LD_LIBRARY_PATH:-}" "$HOST_DIR/piper" -h >/dev/null || true
