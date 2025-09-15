@@ -45,6 +45,7 @@ jobs:
 
       - name: Python deps
         run: |
+          set -euo pipefail
           python -m pip install --upgrade pip wheel
           pip install -r requirements.linux.txt pyinstaller
 
@@ -139,7 +140,10 @@ jobs:
           arch: aarch64
           distro: ubuntu22.04
           shell: /bin/bash
-          env: "PIPER_REF: ${{ env.PIPER_REF }}; PIPER_PHONEMIZE_VER: ${{ env.PIPER_PHONEMIZE_VER }}"
+          # IMPORTANT: newline-separated, NOT semicolons
+          env: |
+            PIPER_REF: ${{ env.PIPER_REF }}
+            PIPER_PHONEMIZE_VER: ${{ env.PIPER_PHONEMIZE_VER }}
           install: |
             apt-get -qq update
             DEBIAN_FRONTEND=noninteractive apt-get -yqq install \
@@ -157,25 +161,20 @@ jobs:
             : "${PIPER_REF:=v1.2.0}"
             : "${PIPER_PHONEMIZE_VER:=1.1.0}"
 
-            # Python deps after repo mount (PyAudio satisfied by apt)
-            python3 -m pip install -r requirements.linux.txt pyinstaller
+            # Python deps after repo mount (avoid PyAudio from pip)
+            grep -vi '^pyaudio' requirements.linux.txt > /tmp/req_no_pyaudio.txt
+            python3 -m pip install -r /tmp/req_no_pyaudio.txt pyinstaller
 
-            # Bring in piper-phonemize (provides phoneme_ids.hpp)
+            # Pull header from PyPI (no git submodules needed)
             python3 -m pip install "piper-phonemize==${PIPER_PHONEMIZE_VER}"
-
-            PHONEME_DIR="$(python3 - <<'PY'
-            import os, importlib
-            m = importlib.import_module('piper_phonemize')
-            print(os.path.dirname(m.__file__), end='')  
-            PY
-            )"
+            PHONEME_DIR="$(python3 -c "import os,importlib,sys;m=importlib.import_module('piper_phonemize');sys.stdout.write(os.path.dirname(m.__file__))")"
             if [ ! -f "${PHONEME_DIR}/phoneme_ids.hpp" ]; then
-              echo "::error::phoneme_ids.hpp not found in piper-phonemize package at ${PHONEME_DIR}"
+              echo "::error::phoneme_ids.hpp not found in piper-phonemize at ${PHONEME_DIR}"
               exit 1
             fi
             echo "Using phoneme_ids.hpp from: ${PHONEME_DIR}"
 
-            # -------- ONNX Runtime (CPU, Linux aarch64) --------
+            # ONNX Runtime (CPU, aarch64)
             ORT_VERSION="${ORT_VERSION:-1.14.1}"
             ORT_ROOT="/opt/onnxruntime"
             mkdir -p "${ORT_ROOT}"
@@ -187,13 +186,12 @@ jobs:
             LIBDIR="${ORT_ROOT}/lib"
             export LD_LIBRARY_PATH="${LIBDIR}:${LD_LIBRARY_PATH:-}"
 
-            # -------- Build Piper from source (arm64) ----------
+            # Build Piper (arm64)
             HOST_DIR="third_party/piper/linux-arm64"
             rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR"
 
             git clone --depth=1 --branch "${PIPER_REF}" https://github.com/rhasspy/piper.git /tmp/piper_src
 
-            # CMake root
             if [ -f /tmp/piper_src/CMakeLists.txt ]; then
               SRC_DIR=/tmp/piper_src
             elif [ -f /tmp/piper_src/src/CMakeLists.txt ]; then
@@ -206,7 +204,7 @@ jobs:
               exit 1
             fi
 
-            # Add includes (ORT + phonemize); also drop the header next to sources as a fallback
+            # Include ORT + piper-phonemize; also drop header next to sources as a fallback
             CXXFLAGS="-I${INC1} -I${INC2} -I${PHONEME_DIR}"
             cp -fv "${PHONEME_DIR}/phoneme_ids.hpp" /tmp/piper_src/src/cpp/ || true
             LDFLAGS="-L${LIBDIR} -lonnxruntime"
@@ -218,7 +216,6 @@ jobs:
 
             cmake --build /tmp/piper_build --config Release -j
 
-            # Copy the 'piper' binary out
             if [ -x /tmp/piper_build/piper ]; then
               cp -av /tmp/piper_build/piper "$HOST_DIR/piper"
             else
@@ -227,18 +224,17 @@ jobs:
             fi
             chmod +x "$HOST_DIR/piper"
 
-            # Bundle ONNX Runtime .so beside piper for runtime portability
+            # Bundle ONNX Runtime .so
             cp -av "${LIBDIR}"/libonnxruntime.so* "$HOST_DIR/" 2>/dev/null || true
 
-            # Quick link check
+            # Link check
             LD_LIBRARY_PATH="$HOST_DIR:${LD_LIBRARY_PATH:-}" "$HOST_DIR/piper" -h >/dev/null || true
             echo "piper (arm64) links OK"
 
-            # -------- Build Nova binaries (arm64) ----------
+            # Build your app + .deb
             pyinstaller --distpath dist_linux NOVA_Linux.spec
             ls -lah dist_linux || true
 
-            # -------- Build .deb (arm64) ----------
             if [[ "${GITHUB_REF:-}" =~ ^refs/tags/v ]]; then
               APPVER="${GITHUB_REF_NAME#v}"
             else
