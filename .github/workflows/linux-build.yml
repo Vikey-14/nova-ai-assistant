@@ -158,7 +158,7 @@ jobs:
             set -euo pipefail
             : "${PIPER_REF:=v1.2.0}"
 
-            # Python deps after repo mount (PyAudio already satisfied by apt)
+            # Python deps after repo mount (PyAudio satisfied by apt)
             python3 -m pip install -r requirements.linux.txt pyinstaller
 
             # -------- ONNX Runtime (CPU, Linux aarch64) --------
@@ -177,12 +177,12 @@ jobs:
             HOST_DIR="third_party/piper/linux-arm64"
             rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR"
 
-            # Clone Piper WITH submodules (no shallow, to avoid submodule pin issues)
+            # Clone Piper WITH submodules
             git clone --recurse-submodules https://github.com/rhasspy/piper.git /tmp/piper_src
             git -C /tmp/piper_src checkout "${PIPER_REF}"
             git -C /tmp/piper_src submodule update --init --recursive
 
-            # Autodetect where CMakeLists.txt lives
+            # Autodetect CMake root
             if [ -f /tmp/piper_src/CMakeLists.txt ]; then
               SRC_DIR=/tmp/piper_src
             elif [ -f /tmp/piper_src/src/CMakeLists.txt ]; then
@@ -195,17 +195,22 @@ jobs:
               exit 1
             fi
 
-            # Find phoneme_ids.hpp and add its folder to includes
-            PHONEME_DIR="$(dirname "$(find /tmp/piper_src -type f -name phoneme_ids.hpp -print -quit || true)")"
-            if [ -z "$PHONEME_DIR" ]; then
-              echo "::group::piper tree"
+            # Locate phoneme_ids.hpp (from piper-phonemize submodule)
+            PHONEME_HPP="$(find /tmp/piper_src -type f -name phoneme_ids.hpp -print -quit || true)"
+            PHONEME_DIR="$(dirname "${PHONEME_HPP}")"
+            if [ -z "${PHONEME_DIR}" ] || [ ! -f "${PHONEME_HPP}" ]; then
+              echo "::group::piper tree (debug)"
               ls -laR /tmp/piper_src | sed 's/^/  /'
               echo "::endgroup::"
-              echo "::error::piper-phonemize header (phoneme_ids.hpp) not found; submodules may be missing."
+              echo "::error::piper-phonemize header phoneme_ids.hpp not found; submodules missing."
               exit 1
             fi
+            echo "Found phoneme_ids.hpp at: ${PHONEME_HPP}"
 
+            # Add includes; also copy the header beside sources as a fallback
             CXXFLAGS="-I${INC1} -I${INC2} -I${PHONEME_DIR}"
+            cp -fv "${PHONEME_HPP}" /tmp/piper_src/src/cpp/ || true
+
             LDFLAGS="-L${LIBDIR} -lonnxruntime"
 
             cmake -S "${SRC_DIR}" -B /tmp/piper_build \
