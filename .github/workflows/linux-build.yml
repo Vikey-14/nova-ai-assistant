@@ -14,7 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Sanitize ref for artifact names (replace / with -)
       - name: Sanitize ref for artifact names
         shell: bash
         run: echo "SAFE_REF=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_ENV"
@@ -49,7 +48,6 @@ jobs:
           python -m pip install --upgrade pip wheel
           pip install -r requirements.linux.txt pyinstaller
 
-      # Use the Piper already in the repo for amd64
       - name: Piper smoke test (repo amd64)
         run: |
           set -euo pipefail
@@ -143,7 +141,8 @@ jobs:
               portaudio19-dev libportaudio2 libportaudiocpp0 python3-pyaudio \
               libasound2-dev libjack-jackd2-dev \
               ffmpeg libpulse0 desktop-file-utils python3-tk \
-              cmake ninja-build meson \
+              cmake ninja-build \
+              autoconf automake libtool gettext \
               libspdlog-dev libfmt-dev
             python3 -m pip install --upgrade pip wheel
           run: |
@@ -169,15 +168,18 @@ jobs:
             export LIBRARY_PATH="${LIBDIR}:${LIBRARY_PATH:-}"
             export LD_LIBRARY_PATH="${LIBDIR}:${LD_LIBRARY_PATH:-}"
 
-            # ---- eSpeak-NG from source (needs Meson; provides newer API)
+            # ---- eSpeak-NG from source (Autotools; newer API than 1.50)
             ESRC="/tmp/espeak_src"
-            EBLD="/tmp/espeak_build"
             git clone --depth=1 https://github.com/espeak-ng/espeak-ng.git "${ESRC}"
-            meson setup "${EBLD}" "${ESRC}" --buildtype=release -Dsonic=disabled
-            ninja -C "${EBLD}"
-            ninja -C "${EBLD}" install
+            cd "${ESRC}"
+            git submodule update --init --recursive || true
+            ./autogen.sh
+            ./configure --prefix=/usr/local --without-sonic
+            make -j"$(nproc)"
+            make install
             ldconfig
             export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+            cd /
 
             # ---- piper-phonemize (build lib + headers)
             git clone --depth=1 --branch "${PIPER_PHONEMIZE_TAG}" https://github.com/rhasspy/piper-phonemize.git /tmp/piper_ph
@@ -211,12 +213,10 @@ jobs:
 
             git clone --depth=1 --branch "${PIPER_REF}" https://github.com/rhasspy/piper.git /tmp/piper_src
 
-            # Include dirs and link flags
             CXXFLAGS="-I${INC1} -I${INC2} -I${PHONEME_DIR}"
             cp -fv "${PHONEME_HPP}" /tmp/piper_src/src/cpp/ || true
             LDFLAGS="-L${LIBDIR} -L$(dirname "${PHONEME_LIB}") -lonnxruntime -lpiper_phonemize"
 
-            # Detect CMake root
             if [ -f /tmp/piper_src/CMakeLists.txt ]; then
               SRC_DIR=/tmp/piper_src
             elif [ -f /tmp/piper_src/src/CMakeLists.txt ]; then
