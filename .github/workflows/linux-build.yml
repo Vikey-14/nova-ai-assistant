@@ -140,7 +140,7 @@ jobs:
           arch: aarch64
           distro: ubuntu22.04
           shell: /bin/bash
-          # Pass a flat map as a **single quoted string** (helps VS Code, too)
+          # Pass a flat map as a **single quoted string**
           env: "PIPER_REF: ${{ env.PIPER_REF }}"
           install: |
             apt-get -qq update
@@ -161,6 +161,20 @@ jobs:
             # Install Python deps *after* repo is mounted
             python3 -m pip install -r requirements.linux.txt pyinstaller
 
+            # -------- ONNX Runtime (CPU, Linux aarch64) --------
+            # Match your x64 tree (1.14.1). Update later if you bump x64.
+            ORT_VERSION="${ORT_VERSION:-1.14.1}"
+            ORT_ROOT="/opt/onnxruntime"
+            mkdir -p "${ORT_ROOT}"
+            curl -L --fail -o /tmp/onnxruntime.tgz \
+              "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-aarch64-${ORT_VERSION}.tgz"
+            tar -xzf /tmp/onnxruntime.tgz -C "${ORT_ROOT}" --strip-components=1
+
+            INC1="${ORT_ROOT}/include"
+            INC2="${ORT_ROOT}/include/onnxruntime/core/session"
+            LIBDIR="${ORT_ROOT}/lib"
+            export LD_LIBRARY_PATH="${LIBDIR}:${LD_LIBRARY_PATH:-}"
+
             # -------- Build Piper from source (arm64) ----------
             HOST_DIR="third_party/piper/linux-arm64"
             rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR"
@@ -180,24 +194,15 @@ jobs:
               exit 1
             fi
 
-            # ------- ONNX Runtime (CPU, Linux aarch64) --------
-            # Match your linux-x64 folder (1.14.1). Update later if you bump x64.
-            ORT_VERSION="${ORT_VERSION:-1.14.1}"
-            ORT_TGZ="onnxruntime-linux-aarch64-${ORT_VERSION}.tgz"
-            ORT_URL="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${ORT_TGZ}"
+            # Explicitly pass ORT include/lib flags to CMake
+            CXXFLAGS="-I${INC1} -I${INC2}"
+            LDFLAGS="-L${LIBDIR} -lonnxruntime"
 
-            mkdir -p /opt/onnxruntime
-            curl -L --fail -o "/tmp/${ORT_TGZ}" "${ORT_URL}"
-            tar -xzf "/tmp/${ORT_TGZ}" -C /opt/onnxruntime --strip-components=1
-
-            # Tell CMake/runtime where ORT lives
-            export ONNXRUNTIME_DIR="/opt/onnxruntime"
-            export LD_LIBRARY_PATH="/opt/onnxruntime/lib:${LD_LIBRARY_PATH:-}"
-
-            # ----- Piper configure/build (add the hint) -----
             cmake -S "${SRC_DIR}" -B /tmp/piper_build \
               -DCMAKE_BUILD_TYPE=Release \
-              -DONNXRUNTIME_DIR="$ONNXRUNTIME_DIR"
+              -DCMAKE_CXX_FLAGS="${CXXFLAGS}" \
+              -DCMAKE_EXE_LINKER_FLAGS="${LDFLAGS}"
+
             cmake --build /tmp/piper_build --config Release -j
 
             # Find produced 'piper' binary and copy it
@@ -210,7 +215,7 @@ jobs:
             chmod +x "$HOST_DIR/piper"
 
             # Bundle ONNX Runtime .so beside piper for runtime portability
-            cp -av "$ONNXRUNTIME_DIR"/lib/libonnxruntime.so* "$HOST_DIR/" 2>/dev/null || true
+            cp -av "${LIBDIR}"/libonnxruntime.so* "$HOST_DIR/" 2>/dev/null || true
 
             # Bundle libs/data from the build (best effort)
             find /tmp/piper_build -type f \( -name 'libpiper*.so*' -o -name 'libespeak*.so*' \) -exec cp -av {} "$HOST_DIR"/ \; || true
