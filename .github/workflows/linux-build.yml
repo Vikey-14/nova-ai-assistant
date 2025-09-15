@@ -14,7 +14,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Sanitize ref for artifact names (replace / with -)
       - name: Sanitize ref for artifact names
         shell: bash
         run: echo "SAFE_REF=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_ENV"
@@ -58,7 +57,6 @@ jobs:
           printf '%s\n' "$HASHED_NAME_BLOCKLIST" > hashed.txt
           echo "hashed.txt lines: $(wc -l < hashed.txt)"
 
-      # Use the Piper already in the repo for amd64
       - name: Piper smoke test (repo amd64)
         run: |
           set -euo pipefail
@@ -156,7 +154,6 @@ jobs:
               autoconf automake libtool libtool-bin gettext gperf \
               libspdlog-dev libfmt-dev \
               python3-pip
-            # Make sure pip exists even on minimal images
             python3 -m ensurepip --upgrade || true
             python3 -m pip install --upgrade pip wheel || \
               (curl -sS https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py && \
@@ -184,7 +181,8 @@ jobs:
             INC2="${ORT_ROOT}/include/onnxruntime/core/session"
             LIBDIR="${ORT_ROOT}/lib"
             export CPLUS_INCLUDE_PATH="${INC1}:${INC2}:${CPLUS_INCLUDE_PATH:-}"
-            export LD_LIBRARY_PATH="${LIBDIR}:${LD_LIBRARY_PATH:-}"
+            export LIBRARY_PATH="${LIBDIR}:${LIBRARY_PATH:-}"        # <-- add link-time path
+            export LD_LIBRARY_PATH="${LIBDIR}:${LD_LIBRARY_PATH:-}"   # runtime path
 
             # ---- eSpeak-NG from source (Autotools; no Meson)
             ESRC="/tmp/espeak_src"
@@ -195,14 +193,18 @@ jobs:
             ldconfig
             export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
 
-            # ---- piper-phonemize (build lib + headers; uses ONNX headers/libs)
+            # ---- piper-phonemize (build lib + headers; make sure linker sees ONNX)
             git clone --depth=1 --branch "${PIPER_PHONEMIZE_TAG}" https://github.com/rhasspy/piper-phonemize.git /tmp/piper_ph
-            cmake -S /tmp/piper_ph -B /tmp/piper_ph_build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="${ORT_ROOT}"
+            cmake -S /tmp/piper_ph -B /tmp/piper_ph_build \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_PREFIX_PATH="${ORT_ROOT}" \
+              -DCMAKE_SHARED_LINKER_FLAGS="-L${LIBDIR}" \
+              -DCMAKE_EXE_LINKER_FLAGS="-L${LIBDIR}"
             cmake --build /tmp/piper_ph_build --config Release -j
 
             PHONEME_HPP="$(find /tmp/piper_ph -type f -name phoneme_ids.hpp -print -quit || true)"
             PHONEME_DIR="$(dirname "${PHONEME_HPP}")"
-            PHONEME_LIB="$(find /tmp/piper_ph_build -maxdepth 2 -type f -name 'libpiper_phonemize.so*' -print -quit || true)"
+            PHONEME_LIB="$(find /tmp/piper_ph_build -maxdepth=2 -type f -name 'libpiper_phonemize.so*' -print -quit || true)"
             [ -f "${PHONEME_HPP}" ] || { echo "::error::phoneme_ids.hpp not found"; exit 1; }
             [ -f "${PHONEME_LIB}" ] || { echo "::error::libpiper_phonemize not built"; exit 1; }
             echo "Using header: ${PHONEME_HPP}"
