@@ -154,14 +154,16 @@ jobs:
               libasound2-dev libjack-jackd2-dev \
               ffmpeg libpulse0 desktop-file-utils python3-tk \
               cmake ninja-build \
-              libspdlog-dev libfmt-dev
+              libspdlog-dev libfmt-dev python3-pyaudio
             python3 -m pip install --upgrade pip wheel
           run: |
             set -euo pipefail
             : "${PIPER_REF:=v1.2.0}"
 
-            # Python deps after repo mount
-            python3 -m pip install -r requirements.linux.txt pyinstaller
+            # Python deps after repo mount (skip PyAudio here; use system package)
+            python3 -m pip install --upgrade pip wheel
+            grep -Ei -v '^\s*pyaudio(\[.*\])?([=<>!].*)?\s*$' requirements.linux.txt > /tmp/reqs_no_pyaudio.txt
+            python3 -m pip install -r /tmp/reqs_no_pyaudio.txt pyinstaller
 
             # -------- ONNX Runtime (CPU, Linux aarch64) --------
             # Match your x64 tree (1.14.1). Update later if you bump x64.
