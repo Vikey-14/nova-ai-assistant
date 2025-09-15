@@ -117,8 +117,6 @@ jobs:
   # ==================== ARM64 (.deb) ====================
   build-arm64:
     runs-on: ubuntu-latest
-    # Run ARM64 independently (no need to wait for amd64)
-    # needs: build-amd64
     env:
       PIPER_REF: "v1.2.0" # pin Piper tag/commit (change if needed)
     steps:
@@ -154,16 +152,14 @@ jobs:
               libasound2-dev libjack-jackd2-dev \
               ffmpeg libpulse0 desktop-file-utils python3-tk \
               cmake ninja-build \
-              libspdlog-dev libfmt-dev python3-pyaudio
+              libspdlog-dev libfmt-dev
             python3 -m pip install --upgrade pip wheel
           run: |
             set -euo pipefail
             : "${PIPER_REF:=v1.2.0}"
 
-            # Python deps after repo mount (skip PyAudio here; use system package)
-            python3 -m pip install --upgrade pip wheel
-            grep -Ei -v '^\s*pyaudio(\[.*\])?([=<>!].*)?\s*$' requirements.linux.txt > /tmp/reqs_no_pyaudio.txt
-            python3 -m pip install -r /tmp/reqs_no_pyaudio.txt pyinstaller
+            # Python deps after repo mount
+            python3 -m pip install -r requirements.linux.txt pyinstaller
 
             # -------- ONNX Runtime (CPU, Linux aarch64) --------
             # Match your x64 tree (1.14.1). Update later if you bump x64.
@@ -183,7 +179,7 @@ jobs:
             HOST_DIR="third_party/piper/linux-arm64"
             rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR"
 
-            # Clone Piper WITH submodules (fixes missing phoneme_ids.hpp)
+            # Clone Piper WITH submodules
             git clone --depth=1 --branch "${PIPER_REF}" --recurse-submodules \
               https://github.com/rhasspy/piper.git /tmp/piper_src
             git -C /tmp/piper_src submodule update --init --recursive
@@ -201,8 +197,22 @@ jobs:
               exit 1
             fi
 
-            # Pass ORT include/lib flags to CMake
-            CXXFLAGS="-I${INC1} -I${INC2}"
+            # ---- Locate piper-phonemize headers & add to include path ----
+            PH_BASE=""
+            for cand in "/tmp/piper_src/deps/piper-phonemize" "/tmp/piper_src/piper-phonemize" "/tmp/piper_src/submodules/piper-phonemize"; do
+              if [ -d "$cand/include/piper-phonemize" ]; then PH_BASE="$cand"; break; fi
+            done
+            if [ -z "$PH_BASE" ]; then
+              echo "::error::piper-phonemize submodule not found (needed for phoneme_ids.hpp)"
+              git -C /tmp/piper_src submodule status || true
+              ls -la /tmp/piper_src || true
+              exit 1
+            fi
+            PH_INC="${PH_BASE}/include/piper-phonemize"
+            echo "Using piper-phonemize headers at: ${PH_INC}"
+
+            # Pass ORT + piper-phonemize include/lib flags to CMake
+            CXXFLAGS="-I${INC1} -I${INC2} -I${PH_INC}"
             LDFLAGS="-L${LIBDIR} -lonnxruntime"
 
             cmake -S "${SRC_DIR}" -B /tmp/piper_build \
@@ -224,7 +234,7 @@ jobs:
             # Bundle ONNX Runtime .so beside piper for runtime portability
             cp -av "${LIBDIR}"/libonnxruntime.so* "$HOST_DIR/" 2>/dev/null || true
 
-            # Quick link-time sanity check (will fail fast if .so not resolvable)
+            # Quick link-time sanity check
             LD_LIBRARY_PATH="$HOST_DIR:${LD_LIBRARY_PATH:-}" "$HOST_DIR/piper" -h >/dev/null || true
             echo "piper (arm64) links OK"
 
