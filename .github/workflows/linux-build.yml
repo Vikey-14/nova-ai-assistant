@@ -9,7 +9,6 @@ on:
 jobs:
   # ==================== AMD64 (.deb) ====================
   build-amd64:
-    # Skip x64 by adding [skip-amd64] in your commit message
     if: ${{ !contains(github.event.head_commit.message, '[skip-amd64]') }}
     runs-on: ubuntu-latest
     steps:
@@ -117,6 +116,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PIPER_REF: "v1.2.0"
+      PIPER_PHONEMIZE_VER: "1.1.0"
     steps:
       - uses: actions/checkout@v4
 
@@ -139,7 +139,7 @@ jobs:
           arch: aarch64
           distro: ubuntu22.04
           shell: /bin/bash
-          env: "PIPER_REF: ${{ env.PIPER_REF }}"
+          env: "PIPER_REF: ${{ env.PIPER_REF }}; PIPER_PHONEMIZE_VER: ${{ env.PIPER_PHONEMIZE_VER }}"
           install: |
             apt-get -qq update
             DEBIAN_FRONTEND=noninteractive apt-get -yqq install \
@@ -155,9 +155,25 @@ jobs:
           run: |
             set -euo pipefail
             : "${PIPER_REF:=v1.2.0}"
+            : "${PIPER_PHONEMIZE_VER:=1.1.0}"
 
             # Python deps after repo mount (PyAudio satisfied by apt)
             python3 -m pip install -r requirements.linux.txt pyinstaller
+
+            # Bring in piper-phonemize (provides phoneme_ids.hpp)
+            python3 -m pip install "piper-phonemize==${PIPER_PHONEMIZE_VER}"
+
+            PHONEME_DIR="$(python3 - <<'PY'
+            import os, importlib
+            m = importlib.import_module('piper_phonemize')
+            print(os.path.dirname(m.__file__), end='')  
+            PY
+            )"
+            if [ ! -f "${PHONEME_DIR}/phoneme_ids.hpp" ]; then
+              echo "::error::phoneme_ids.hpp not found in piper-phonemize package at ${PHONEME_DIR}"
+              exit 1
+            fi
+            echo "Using phoneme_ids.hpp from: ${PHONEME_DIR}"
 
             # -------- ONNX Runtime (CPU, Linux aarch64) --------
             ORT_VERSION="${ORT_VERSION:-1.14.1}"
@@ -175,18 +191,9 @@ jobs:
             HOST_DIR="third_party/piper/linux-arm64"
             rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR"
 
-            # Full clone, then tag checkout, then force/sync submodules
-            git clone https://github.com/rhasspy/piper.git /tmp/piper_src
-            git -C /tmp/piper_src checkout "${PIPER_REF}"
-            git -C /tmp/piper_src submodule sync --recursive
-            git -C /tmp/piper_src submodule update --init --recursive --checkout --force
+            git clone --depth=1 --branch "${PIPER_REF}" https://github.com/rhasspy/piper.git /tmp/piper_src
 
-            echo "---- .gitmodules ----"
-            cat /tmp/piper_src/.gitmodules || true
-            echo "---- submodule status ----"
-            git -C /tmp/piper_src submodule status || true
-
-            # Autodetect CMake root
+            # CMake root
             if [ -f /tmp/piper_src/CMakeLists.txt ]; then
               SRC_DIR=/tmp/piper_src
             elif [ -f /tmp/piper_src/src/CMakeLists.txt ]; then
@@ -199,22 +206,9 @@ jobs:
               exit 1
             fi
 
-            # Locate phoneme_ids.hpp (from piper-phonemize submodule)
-            PHONEME_HPP="$(find /tmp/piper_src -type f -name phoneme_ids.hpp -print -quit || true)"
-            PHONEME_DIR="$(dirname "${PHONEME_HPP}")"
-            if [ -z "${PHONEME_DIR}" ] || [ ! -f "${PHONEME_HPP}" ]; then
-              echo "::group::piper tree (debug)"
-              ls -laR /tmp/piper_src | sed 's/^/  /'
-              echo "::endgroup::"
-              echo "::error::piper-phonemize header phoneme_ids.hpp not found; submodules missing."
-              exit 1
-            fi
-            echo "Found phoneme_ids.hpp at: ${PHONEME_HPP}"
-
-            # Add includes and fallback-copy header beside Piper sources
+            # Add includes (ORT + phonemize); also drop the header next to sources as a fallback
             CXXFLAGS="-I${INC1} -I${INC2} -I${PHONEME_DIR}"
-            cp -fv "${PHONEME_HPP}" /tmp/piper_src/src/cpp/ || true
-
+            cp -fv "${PHONEME_DIR}/phoneme_ids.hpp" /tmp/piper_src/src/cpp/ || true
             LDFLAGS="-L${LIBDIR} -lonnxruntime"
 
             cmake -S "${SRC_DIR}" -B /tmp/piper_build \
