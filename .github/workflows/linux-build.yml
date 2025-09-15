@@ -9,6 +9,8 @@ on:
 jobs:
   # ==================== AMD64 (.deb) ====================
   build-amd64:
+    # Skip x64 by adding [skip-amd64] in your commit message
+    if: ${{ !contains(github.event.head_commit.message, '[skip-amd64]') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -115,7 +117,8 @@ jobs:
   # ==================== ARM64 (.deb) ====================
   build-arm64:
     runs-on: ubuntu-latest
-    needs: build-amd64
+    # Run ARM64 independently (no need to wait for amd64)
+    # needs: build-amd64
     env:
       PIPER_REF: "v1.2.0" # pin Piper tag/commit (change if needed)
     steps:
@@ -140,7 +143,6 @@ jobs:
           arch: aarch64
           distro: ubuntu22.04
           shell: /bin/bash
-          # Pass a flat map as a **single quoted string**
           env: "PIPER_REF: ${{ env.PIPER_REF }}"
           install: |
             apt-get -qq update
@@ -156,9 +158,9 @@ jobs:
             python3 -m pip install --upgrade pip wheel
           run: |
             set -euo pipefail
-            : "${PIPER_REF:=v1.2.0}"   # safe fallback
+            : "${PIPER_REF:=v1.2.0}"
 
-            # Install Python deps *after* repo is mounted
+            # Python deps after repo mount
             python3 -m pip install -r requirements.linux.txt pyinstaller
 
             # -------- ONNX Runtime (CPU, Linux aarch64) --------
@@ -179,7 +181,10 @@ jobs:
             HOST_DIR="third_party/piper/linux-arm64"
             rm -rf "$HOST_DIR" && mkdir -p "$HOST_DIR"
 
-            git clone --depth=1 --branch "${PIPER_REF}" https://github.com/rhasspy/piper.git /tmp/piper_src
+            # Clone Piper WITH submodules (fixes missing phoneme_ids.hpp)
+            git clone --depth=1 --branch "${PIPER_REF}" --recurse-submodules \
+              https://github.com/rhasspy/piper.git /tmp/piper_src
+            git -C /tmp/piper_src submodule update --init --recursive
 
             # Autodetect where CMakeLists.txt lives
             if [ -f /tmp/piper_src/CMakeLists.txt ]; then
@@ -194,7 +199,7 @@ jobs:
               exit 1
             fi
 
-            # Explicitly pass ORT include/lib flags to CMake
+            # Pass ORT include/lib flags to CMake
             CXXFLAGS="-I${INC1} -I${INC2}"
             LDFLAGS="-L${LIBDIR} -lonnxruntime"
 
@@ -205,7 +210,7 @@ jobs:
 
             cmake --build /tmp/piper_build --config Release -j
 
-            # Find produced 'piper' binary and copy it
+            # Copy the 'piper' binary out
             if [ -x /tmp/piper_build/piper ]; then
               cp -av /tmp/piper_build/piper "$HOST_DIR/piper"
             else
@@ -216,6 +221,10 @@ jobs:
 
             # Bundle ONNX Runtime .so beside piper for runtime portability
             cp -av "${LIBDIR}"/libonnxruntime.so* "$HOST_DIR/" 2>/dev/null || true
+
+            # Quick link-time sanity check (will fail fast if .so not resolvable)
+            LD_LIBRARY_PATH="$HOST_DIR:${LD_LIBRARY_PATH:-}" "$HOST_DIR/piper" -h >/dev/null || true
+            echo "piper (arm64) links OK"
 
             # Bundle libs/data from the build (best effort)
             find /tmp/piper_build -type f \( -name 'libpiper*.so*' -o -name 'libespeak*.so*' \) -exec cp -av {} "$HOST_DIR"/ \; || true
