@@ -1,11 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Usage:
+#   bash pack_deb.sh 1.0.2-1            # builds amd64 by default
+#   bash pack_deb.sh 1.0.2-1 arm64      # builds arm64
+# You can also export ARCH=arm64 and call with one arg.
+
 APPVER="${1:-1.0.2-1}"
-ARCH=amd64
+ARCH="${2:-${ARCH:-amd64}}"
+
 PKGNAME=nova-ai-assistant
 PKGROOT="/tmp/nova_ai_assistant_${APPVER}_${ARCH}"
 PKGFILE="nova_ai_assistant_${APPVER}_${ARCH}.deb"
+
+# Where the PyInstaller output ends up
+SRC_DIR="dist_linux/NOVA_Linux"
+# Where we'll install the full app payload
+APPDIR="/opt/nova"
 
 rm -rf "$PKGROOT"
 mkdir -p "$PKGROOT/DEBIAN" \
@@ -13,34 +24,81 @@ mkdir -p "$PKGROOT/DEBIAN" \
          "$PKGROOT/usr/share/applications" \
          "$PKGROOT/usr/share/icons/hicolor/256x256/apps" \
          "$PKGROOT/etc/xdg/autostart" \
-         "$PKGROOT/usr/share/doc/${PKGNAME}"
+         "$PKGROOT/usr/share/doc/${PKGNAME}" \
+         "$PKGROOT${APPDIR}"
 
-# ---------------- Binaries from PyInstaller (must already exist) ----------------
-cp dist_linux/NOVA_Linux/NOVA     "$PKGROOT/usr/bin/NOVA"
-cp dist_linux/NOVA_Linux/NovaTray "$PKGROOT/usr/bin/NovaTray"
-chmod 0755 "$PKGROOT/usr/bin/NOVA" "$PKGROOT/usr/bin/NovaTray"
+# ---------------- App payload: copy EVERYTHING from PyInstaller ----------------
+# This preserves hashed.txt, assets/, data/, handlers/, third_party/piper, etc.
+cp -a "${SRC_DIR}/." "$PKGROOT${APPDIR}/"
+
+# Optional (tidy): drop other-arch Piper and any 0-byte leftovers
+if [ "${ARCH}" = "amd64" ]; then
+  rm -rf "$PKGROOT${APPDIR}/third_party/piper/linux-arm64" || true
+elif [ "${ARCH}" = "arm64" ]; then
+  rm -rf "$PKGROOT${APPDIR}/third_party/piper/linux-x64" || true
+fi
+find "$PKGROOT${APPDIR}/third_party/piper" -type f -size 0 -delete 2>/dev/null || true
+
+# Ensure main binaries are executable (PyInstaller usually does this already)
+chmod 0755 "$PKGROOT${APPDIR}/Nova" "$PKGROOT${APPDIR}/NovaTray" 2>/dev/null || true
+
+# ---------------- Piper env snippet (ARCH-AWARE) ----------------
+# Helper: resolve Piper dir (pick by CPU arch at runtime)
+piper_dir_snippet='
+APPDIR="/opt/nova"
+arch="$(uname -m)"
+case "$arch" in
+  x86_64|amd64)   PIPDIR="$APPDIR/third_party/piper/linux-x64" ;;
+  aarch64|arm64)  PIPDIR="$APPDIR/third_party/piper/linux-arm64" ;;
+  *)              PIPDIR="" ;;
+esac
+
+if [ -d "$PIPDIR" ]; then
+  export LD_LIBRARY_PATH="$PIPDIR:${LD_LIBRARY_PATH:-}"
+  export ESPEAK_DATA="$PIPDIR/espeak-ng-data"
+  if [ -f "$PIPDIR/libpiper_phonemize.so" ]; then
+    export PIPER_PHONEMIZE_LIBRARY="$PIPDIR/libpiper_phonemize.so"
+  fi
+fi
+'
+
+# ---------------- Lightweight wrappers in /usr/bin ----------------
+# They set working dir and the Piper env so libs/data are always found.
+cat > "$PKGROOT/usr/bin/Nova" <<EOF
+#!/bin/sh
+${piper_dir_snippet}
+cd "/opt/nova" || exit 1
+exec "/opt/nova/Nova" "\$@"
+EOF
+chmod 0755 "$PKGROOT/usr/bin/Nova"
+
+cat > "$PKGROOT/usr/bin/NovaTray" <<EOF
+#!/bin/sh
+${piper_dir_snippet}
+cd "/opt/nova" || exit 1
+exec "/opt/nova/NovaTray" "\$@"
+EOF
+chmod 0755 "$PKGROOT/usr/bin/NovaTray"
 
 # ---------------- Icon ----------------
 cp assets/nova_icon_256.png "$PKGROOT/usr/share/icons/hicolor/256x256/apps/nova.png"
 chmod 0644 "$PKGROOT/usr/share/icons/hicolor/256x256/apps/nova.png"
 
 # ---------------- App menu launchers (visible) ----------------
-# NOVA (main app)
 cat > "$PKGROOT/usr/share/applications/nova.desktop" << 'EOF'
 [Desktop Entry]
 Type=Application
-Name=NOVA
-Comment=Talk to NOVA
-Exec=/usr/bin/NOVA
+Name=Nova
+Comment=Talk to Nova
+Exec=/usr/bin/Nova
 Icon=nova
 Terminal=false
 Categories=Utility;
 StartupNotify=true
-StartupWMClass=NOVA
+StartupWMClass=Nova
 EOF
 chmod 0644 "$PKGROOT/usr/share/applications/nova.desktop"
 
-# Nova Tray (visible so it's searchable in the app menu)
 cat > "$PKGROOT/usr/share/applications/nova-tray.desktop" << 'EOF'
 [Desktop Entry]
 Type=Application
@@ -73,7 +131,7 @@ printf "nova-ai-assistant (%s) stable; urgency=low\n\n  * Nova release.\n\n -- N
   "$APPVER" "$(date -R)" | gzip -n9 > "$PKGROOT/usr/share/doc/${PKGNAME}/changelog.Debian.gz"
 cat > "$PKGROOT/usr/share/doc/${PKGNAME}/copyright" << 'EOF'
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: Nova AI Assistant
+Upstream-Name: Nova
 Source: https://example.com
 
 Files: *
@@ -94,10 +152,10 @@ Priority: optional
 Architecture: ${ARCH}
 Maintainer: Nova Team <support@example.com>
 Homepage: https://your-site.example
-Description: NOVA – voice AI assistant with tray helper
- Installs NOVA (main app) and NovaTray (system tray helper).
-Depends: libc6 (>= 2.31), libstdc++6 (>= 10), libx11-6, libxcb1, libxext6, libxrender1, libxrandr2, libxi6, libxfixes3, libxcursor1, libxinerama1, libxss1, libgtk-3-0 | libgtk2.0-0, libasound2t64 | libasound2, libpulse0, libportaudio2
-Recommends: ffmpeg | mpg123
+Description: Nova – voice AI assistant with tray helper
+ Installs Nova (main app) and Nova Tray (system tray helper).
+Depends: libc6 (>= 2.31), libstdc++6 (>= 10), libx11-6, libxcb1, libxext6, libxrender1, libxrandr2, libxi6, libxfixes3, libxcursor1, libxinerama1, libxss1, libgtk-3-0, libgirepository-1.0-1, gir1.2-gtk-3.0, libayatana-appindicator3-1 | libappindicator3-1, gir1.2-ayatanaappindicator3-0.1 | gir1.2-appindicator3-0.1, libasound2t64 | libasound2, libpulse0, libportaudio2, libsndfile1, libespeak-ng1, wmctrl
+Recommends: ffmpeg | mpg123, libayatana-appindicator3-1
 EOF
 
 # Preserve user edits to the /etc autostart file
@@ -120,26 +178,25 @@ is_wsl() {
   grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null
 }
 
-# 1) Put a NOVA launcher on each existing user's Desktop (like Windows)
+# 1) Put a Nova launcher on each existing user's Desktop
 APP_DESKTOP="/usr/share/applications/nova.desktop"
 for d in /home/*; do
   u="$(basename "$d")"
   desk="$d/Desktop"
   [ -d "$desk" ] || mkdir -p "$desk"
-  cp -f "$APP_DESKTOP" "$desk/NOVA.desktop" 2>/dev/null || true
-  chmod +x "$desk/NOVA.desktop" 2>/dev/null || true
-  chown "$u":"$u" "$desk/NOVA.desktop" 2>/dev/null || true
-  # Mark trusted so GNOME won't show "untrusted launcher" (best effort)
+  cp -f "$APP_DESKTOP" "$desk/Nova.desktop" 2>/dev/null || true
+  chmod +x "$desk/Nova.desktop" 2>/dev/null || true
+  chown "$u":"$u" "$desk/Nova.desktop" 2>/dev/null || true
   if ! is_wsl && command -v gio >/dev/null 2>&1; then
-    su - "$u" -c "gio set \"$desk/NOVA.desktop\" metadata::trusted true" 2>/dev/null || true
+    su - "$u" -c "gio set \"$desk/Nova.desktop\" metadata::trusted true" 2>/dev/null || true
   fi
 done
 
-# 1b) Seed future users with a Desktop icon via /etc/skel
+# 1b) Seed future users via /etc/skel
 if [ -d /etc/skel ]; then
   mkdir -p /etc/skel/Desktop
-  cp -f "$APP_DESKTOP" /etc/skel/Desktop/NOVA.desktop 2>/dev/null || true
-  chmod +x /etc/skel/Desktop/NOVA.desktop 2>/dev/null || true
+  cp -f "$APP_DESKTOP" /etc/skel/Desktop/Nova.desktop 2>/dev/null || true
+  chmod +x /etc/skel/Desktop/Nova.desktop 2>/dev/null || true
 fi
 
 # 2) Start the tray immediately (best effort; autostart covers next logins)
@@ -173,12 +230,16 @@ dpkg-deb --build --root-owner-group "$PKGROOT" "/tmp/${PKGFILE}"
 mkdir -p dist_linux
 mv "/tmp/${PKGFILE}" dist_linux/
 
-# Create/refresh a stable name that always points at the newest .deb.
-# Prefer a symlink; if not supported (e.g. certain mounts), fall back to a copy.
+# ---------------- Stable-name artifact (arch-aware) ----------------
 (
   cd dist_linux
-  ln -sfn "$PKGFILE" nova_ai_assistant_amd64.deb 2>/dev/null || cp -f "$PKGFILE" nova_ai_assistant_amd64.deb
+  stable="nova_ai_assistant_${ARCH}.deb"
+  if [ -n "${WSL_DISTRO_NAME:-}" ]; then
+    cp -f "$PKGFILE" "$stable"
+  else
+    ln -sfn "$PKGFILE" "$stable" 2>/dev/null || cp -f "$PKGFILE" "$stable"
+  fi
 )
 
-echo "Built: dist_linux/${PKGFILE}"
-echo "Stable: dist_linux/nova_ai_assistant_amd64.deb -> ${PKGFILE}"
+echo "Built:  dist_linux/${PKGFILE}"
+echo "Stable: dist_linux/nova_ai_assistant_${ARCH}.deb -> ${PKGFILE}"

@@ -6,9 +6,10 @@ pyttsx3
 pystray
 Pillow
 langdetect
-requests
+requests>=2.31.0
 python-dotenv
 wikipedia
+holidays
 beautifulsoup4
 dateparser
 numpy>=2.0
@@ -17,4 +18,6 @@ matplotlib
 psutil
 platformdirs
 pygame
-edge-tts
+edge-tts>=6.1.0
+aiohttp>=3.9   
+

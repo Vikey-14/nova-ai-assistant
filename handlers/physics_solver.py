@@ -147,7 +147,7 @@ except Exception:
 # -------------------------------------
 # Persistence paths (restart-proof) → logs/
 # -------------------------------------
-# Store small state files in logs/ (writeable next to NOVA.exe)
+# Store small state files in logs/ (writeable next to Nova.exe)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 LAST_EQN_PATH  = os.path.join(LOG_DIR, ".nova_last_equation.json")
 LAST_GRAPH_PATH = os.path.join(LOG_DIR, ".nova_last_graph.json")

@@ -52,7 +52,7 @@ def handle_wikipedia(command: str) -> None:
             summary = wikipedia.summary(topic, sentences=4)
 
             # 📺 Terminal output
-            print("\n📚 NOVA WIKIPEDIA ANSWER")
+            print("\n📚 Nova Wikipedia Answer")
             print("──────────────────────────────")
             print(f"🔎 Topic: {topic}")
             print(f"🌐 Language: {wiki_lang.upper()}")

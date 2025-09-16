@@ -1,14 +1,16 @@
 #!/bin/bash
-# postinstall for NOVA macOS PKG
-# - Always install LaunchAgent (so autostart works after real user install)
+# postinstall for Nova macOS PKG
+# - Always install LaunchAgent (so autostart works)
 # - Skip GUI/session actions on CI/headless runners
-# - Be resilient: don't fail if plist is missing; create a fallback
+# - Be resilient to bundle name (Nova.app vs NOVA.app)
 
 set -euo pipefail
-
 log() { echo "[postinstall] $*" >&2; }
 
-APP="/Applications/NOVA.app"
+# -------- Locate installed app bundles (support both names) --------
+APP="/Applications/Nova.app"
+[ -d "$APP" ] || APP="/Applications/NOVA.app"
+
 TRAY_APP="/Applications/Nova Tray.app/Contents/MacOS/NovaTray"
 
 # -------- Detect current console user (for Desktop alias / launchctl GUI) --------
@@ -58,30 +60,32 @@ if [[ "${GITHUB_ACTIONS:-}" == "true" || "${CI:-}" == "true" ]]; then
   exit 0
 fi
 
-# -------- Create a Desktop alias/symlink for NOVA.app (best-effort) --------
-if [[ -n "${CURRENT_USER:-}" && "${CURRENT_USER}" != "root" ]]; then
+# -------- Create a Desktop alias/symlink for the app (best-effort) --------
+if [[ -n "${CURRENT_USER:-}" && "${CURRENT_USER}" != "root" && -d "$APP" ]]; then
   DESK="/Users/${CURRENT_USER}/Desktop"
   mkdir -p "$DESK" || true
 
-  # Try Finder alias first (only if Finder available), else symlink
+  APP_BASENAME="$(basename "$APP")"  # "Nova.app" or "NOVA.app"
+
+  # Try Finder alias first (only if Finder is running), else symlink
   if /usr/bin/pgrep -x Finder >/dev/null 2>&1; then
-    /usr/bin/osascript <<'OSA' || true
+    /usr/bin/osascript <<OSA || true
 tell application "Finder"
   try
     set d to (path to desktop folder) as alias
-    set targetApp to POSIX file "/Applications/NOVA.app" as alias
-    if not (exists file "NOVA.app" of d) then
-      make new alias file at d to targetApp with properties {name:"NOVA.app"}
+    set targetApp to POSIX file "$APP" as alias
+    if not (exists file "$APP_BASENAME" of d) then
+      make new alias file at d to targetApp with properties {name:"$APP_BASENAME"}
     end if
   end try
 end tell
 OSA
   fi
 
-  if [[ ! -e "$DESK/NOVA.app" ]]; then
-    ln -sfn "$APP" "$DESK/NOVA.app" || true
+  if [[ ! -e "$DESK/$APP_BASENAME" ]]; then
+    ln -sfn "$APP" "$DESK/$APP_BASENAME" || true
   fi
-  chown -h "$CURRENT_USER":staff "$DESK/NOVA.app" 2>/dev/null || true
+  chown -h "$CURRENT_USER":staff "$DESK/$APP_BASENAME" 2>/dev/null || true
 fi
 
 # -------- Start (or restart) tray now in the user's GUI session (best-effort) --------
@@ -94,7 +98,6 @@ if [[ -n "${CURRENT_USER:-}" && -x "$TRAY_APP" ]]; then
     launchctl kickstart -k "gui/${USER_UID}/com.novaai.tray" >/dev/null 2>&1 || true
   fi
 fi
-
 
 log "postinstall complete."
 exit 0

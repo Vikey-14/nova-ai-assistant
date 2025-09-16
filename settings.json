@@ -7,6 +7,12 @@
   "birthday_show_next_boot": false,
   "birthday_show_next_boot_date": "",
   "birthday_celebrated_year": 2025,
-  "auto_restart_on_crash": true,
-  "auto_restart_backoff_max_sec": 60
+
+  "pokemon_api": {
+    "base_url": "http://127.0.0.1:8000",
+    "username": "professoroak",
+    "password": "pallet123",
+    "flair_enabled": true,
+    "secure_upload_api_key": ""               
+  }
 }

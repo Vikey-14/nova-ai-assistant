@@ -1,5 +1,4 @@
 {
-  "enable_tray": false,
-  "auto_restart_on_crash": false,
+  "enable_tray": true,
   "tts_engine": "gtts"
 }
