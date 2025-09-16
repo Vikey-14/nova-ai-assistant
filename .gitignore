@@ -7,6 +7,7 @@
 *.key
 *.pem
 .python-version
+hashed.txt
 
 # 🐍 Python caches / packaging
 __pycache__/
@@ -135,11 +136,8 @@ nova_face_assets/
 *.bak
 *.orig
 *.swp
-hashed.txtthird_party/piper/linux-x64/
-third_party/piper/linux-arm64/
 
 # --- Nova: platform bundles & build outputs (do not commit) ---
-third_party/piper/
 ffmpeg/
 *.wav
 out_*.wav
@@ -160,3 +158,19 @@ test_gtts.mp3
 # Local version text files
 VERSION.txt
 version_info_*.txt
+
+# -------- Piper bundle rules --------
+# Ignore everything under third_party/piper by default…
+third_party/piper/**
+
+# …but allow these specific ARM64 artifacts we want to ship:
+!third_party/
+!third_party/piper/
+!third_party/piper/linux-arm64/
+!third_party/piper/linux-arm64/piper
+!third_party/piper/linux-arm64/libonnxruntime.so
+!third_party/piper/linux-arm64/libpiper_phonemize.so*
+# If you ship specific model files, unignore them explicitly:
+!third_party/piper/models/
+!third_party/piper/models/en_US-ryan-medium.onnx
+!third_party/piper/models/en_US-ryan-medium.onnx.json
