@@ -4,13 +4,15 @@ from __future__ import annotations
 import os
 import re
 import csv
-import webbrowser
 import difflib
 from typing import List, Dict, Optional, Tuple
+from followup import confirm_did_you_mean
+from say_show import say_show_texts
+
 
 # GUI + TTS
 from gui_interface import nova_gui
-from utils import speak, selected_language, load_settings, resource_path  # load_settings/resource_path used
+from utils import selected_language, resource_path
 from memory_handler import load_from_memory
 
 # FastAPI clients (all-in-one client in integrations/pokemon_client.py)
@@ -36,8 +38,18 @@ from fuzzy_utils import fuzzy_in
 
 # TTS formatters (add/update/delete/list/show — multilingual + flair)
 from tts_formatters.pokemon import (
-    tts_add, tts_update, tts_delete, tts_list, tts_show, TYPE_NAMES
+    tts_add, tts_list, tts_show, TYPE_NAMES
 )
+
+
+# FOLLOW-UP (typed + voice) helpers — lazy to avoid circular imports
+def _lazy_followup():
+    # bring these in only when needed (prevents circular-import headaches)
+    from utils import _speak_multilang, speak, listen_command
+    from followup import await_followup
+    from gui_interface import nova_gui
+    return _speak_multilang, speak, listen_command, await_followup, nova_gui
+
 
 # ────────────────────────────────────────────────────────────────
 # Multilingual help
@@ -205,15 +217,33 @@ SPEAK_HELP: dict[str, str] = {
 
 # Localized field labels for GUI change-lists
 LABELS = {
-    "en": {"type": "type", "nickname": "nickname"},
-    "hi": {"type": "टाइप", "nickname": "निकनेम"},
-    "fr": {"type": "type", "nickname": "surnom"},
-    "es": {"type": "tipo", "nickname": "apodo"},
-    "de": {"type": "typ", "nickname": "spitzname"},
+    "en": {"type": "type", "nickname": "nickname", "level": "level"},
+    "hi": {"type": "टाइप", "nickname": "निकनेम", "level": "लेवल"},
+    "fr": {"type": "type", "nickname": "surnom", "level": "niveau"},
+    "es": {"type": "tipo", "nickname": "apodo", "level": "nivel"},
+    "de": {"type": "typ", "nickname": "spitzname", "level": "Level"},
 }
 
+
+YOU_WORD = {
+    "en": "You",
+    "hi": "आप",
+    "fr": "Vous",
+    "es": "Tú",
+    "de": "Du",
+}
+
+PROFILE_LABELS = {
+    "en": {"nickname": "Nickname", "location": "Location", "pronouns": "Pronouns"},
+    "hi": {"nickname": "निकनेम", "location": "स्थान", "pronouns": "प्रोनाउन्स"},
+    "fr": {"nickname": "Surnom", "location": "Localisation", "pronouns": "Pronoms"},
+    "es": {"nickname": "Apodo", "location": "Ubicación", "pronouns": "Pronombres"},
+    "de": {"nickname": "Spitzname", "location": "Ort", "pronouns": "Pronomen"},
+}
+
+
 # ────────────────────────────────────────────────────────────────
-# Generic multilingual messages (added missing + new ones)
+# Generic multilingual messages
 # ────────────────────────────────────────────────────────────────
 MSG: Dict[str, Dict[str, str]] = {
     # Images/Gallery
@@ -519,6 +549,15 @@ MSG: Dict[str, Dict[str, str]] = {
         "es": "Pokémon {pid} no encontrado.",
         "de": "Pokémon {pid} nicht gefunden.",
     },
+
+    "type_unknown": {
+        "en": "Sorry, I couldn't understand the type.",
+        "hi": "माफ़ करें, मैं टाइप समझ नहीं पाई।",
+        "fr": "Désolé, je n’ai pas compris le type.",
+        "es": "Lo siento, no entendí el tipo.",
+        "de": "Entschuldigung, den Typ habe ich nicht verstanden.",
+    },
+
     # Trainer
     "trainer_profile_show": {
         "en": "Trainer profile:",
@@ -605,27 +644,233 @@ MSG: Dict[str, Dict[str, str]] = {
         "es": "por",
         "de": "von",
     },
+
+    "error_generic": {
+        "en": "Error: {err}",
+        "hi": "त्रुटि: {err}",
+        "fr": "Erreur : {err}",
+        "es": "Error: {err}",
+        "de": "Fehler: {err}",
+    },
+
+    "uploading_image": {
+        "en": "Uploading Image…",
+        "hi": "इमेज अपलोड कर रही हूँ…",
+        "fr": "Téléversement de l’image…",
+        "es": "Subiendo imagen…",
+        "de": "Bild wird hochgeladen…",
+    },
+    "uploading_images": {
+        "en": "Uploading Images…",
+        "hi": "इमेजेज़ अपलोड कर रही हूँ…",
+        "fr": "Téléversement des images…",
+        "es": "Subiendo imágenes…",
+        "de": "Bilder werden hochgeladen…",
+    },
+    "uploading_title_image": {
+        "en": "Nova — Uploading Image",
+        "hi": "Nova — इमेज अपलोड",
+        "fr": "Nova — Téléversement d’image",
+        "es": "Nova — Subiendo imagen",
+        "de": "Nova — Bild wird hochgeladen",
+    },
+    "uploading_title_images": {
+        "en": "Nova — Uploading Images",
+        "hi": "Nova — इमेजेज़ अपलोड",
+        "fr": "Nova — Téléversement d’images",
+        "es": "Nova — Subiendo imágenes",
+        "de": "Nova — Bilder werden hochgeladen",
+    },
+
+    "select_images": {
+        "en": "Select Images",
+        "hi": "इमेज चुनें",
+        "fr": "Sélectionner des images",
+        "es": "Seleccionar imágenes",
+        "de": "Bilder auswählen",
+    },
+    "select_image": {
+        "en": "Select Image",
+        "hi": "इमेज चुनें",
+        "fr": "Sélectionner une image",
+        "es": "Seleccionar imagen",
+        "de": "Bild auswählen",
+    },
+    "select_pokemon_csv": {
+        "en": "Select Pokémon CSV",
+        "hi": "पोकेमोन CSV चुनें",
+        "fr": "Sélectionner le CSV Pokémon",
+        "es": "Seleccionar CSV de Pokémon",
+        "de": "Pokémon-CSV auswählen",
+    },
+
+    "team_added_fallback": {
+        "en": "Added Pokémon {pid} to team.",
+        "hi": "पोकेमोन {pid} टीम में जोड़ दिया गया.",
+        "fr": "Pokémon {pid} ajouté à l’équipe.",
+        "es": "Pokémon {pid} añadido al equipo.",
+        "de": "Pokémon {pid} zum Team hinzugefügt.",
+    },
+    "team_removed_fallback": {
+        "en": "Removed Pokémon {pid} from team.",
+        "hi": "पोकेमोन {pid} टीम से हटाया गया.",
+        "fr": "Pokémon {pid} retiré de l’équipe.",
+        "es": "Se quitó el Pokémon {pid} del equipo.",
+        "de": "Pokémon {pid} aus dem Team entfernt.",
+    }
 }
+
+# Short, localized follow-up prompts shown/spoken during interactive flows
+_PROMPTS = {
+    "ask_filename": {
+        "en": "Which filename should I download?",
+        "hi": "कौन-सी फ़ाइल डाउनलोड करूँ?",
+        "fr": "Quel nom de fichier dois-je télécharger ?",
+        "es": "¿Qué nombre de archivo debo descargar?",
+        "de": "Welche Datei soll ich herunterladen?",
+    },
+    "ask_pid": {
+        "en": "Which Pokémon ID?",
+        "hi": "कौन-सा पोकेमोन ID?",
+        "fr": "Quel identifiant de Pokémon ?",
+        "es": "¿Qué ID de Pokémon?",
+        "de": "Welche Pokémon-ID?",
+    },
+    "ask_level": {
+        "en": "What level?",
+        "hi": "किस लेवल पर?",
+        "fr": "Quel niveau ?",
+        "es": "¿Qué nivel?",
+        "de": "Welches Level?",
+    },
+    "ask_type": {
+        "en": "Which type?",
+        "hi": "कौन-सा टाइप?",
+        "fr": "Quel type ?",
+        "es": "¿Qué tipo?",
+        "de": "Welcher Typ?",
+    },
+    "ask_name": {
+        "en": "What is the Pokémon’s name?",
+        "hi": "पोकेमोन का नाम क्या है?",
+        "fr": "Quel est le nom du Pokémon ?",
+        "es": "¿Cuál es el nombre del Pokémon?",
+        "de": "Wie heißt das Pokémon?",
+    },
+    "ask_nick": {
+        "en": "Nickname? (say “skip” to leave blank)",
+        "hi": "निकनेम? (खाली छोड़ने के लिए 'skip' कहें)",
+        "fr": "Surnom ? (dites « skip » pour laisser vide)",
+        "es": "¿Apodo? (di « skip » para dejar en blanco)",
+        "de": "Spitzname? (sage „skip“, um leer zu lassen)",
+    },
+    "ask_update_fields": {
+        "en": "What should I update — level, type, nickname (you can list multiple)?",
+        "hi": "क्या अपडेट करूँ — level, type, nickname (कई बता सकते हैं)?",
+        "fr": "Que dois-je mettre à jour — niveau, type, surnom (plusieurs possibles) ?",
+        "es": "¿Qué debo actualizar — nivel, tipo, apodo (puedes indicar varios)?",
+        "de": "Was soll ich aktualisieren — Level, Typ, Spitzname (mehrere möglich)?",
+    },
+    "didnt_get_it": {
+        "en": "Sorry, I didn’t catch that.",
+        "hi": "माफ़ कीजिए, मैं समझ नहीं पाई।",
+        "fr": "Désolé, je n’ai pas compris.",
+        "es": "Perdón, no entendí.",
+        "de": "Entschuldige, das habe ich nicht verstanden.",
+    },
+}
+
+
+def _say_then_show_prompt(key: str) -> str:
+    from utils import selected_language
+    # pull _speak_multilang from the lazy loader so it exists in this scope
+    _speak_multilang, *_ = _lazy_followup()
+    p = _PROMPTS[key]
+    _speak_multilang(p["en"], hi=p["hi"], de=p["de"], fr=p["fr"], es=p["es"])  # SAY (multilingual TTS)
+    bubble = p.get((selected_language or "en").lower(), p["en"])  # SHOW in current UI language (safe)
+    return bubble
+
+
+def _await_slot(key: str, parse_fn=None, timeout=18.0):
+    _speak_multilang, speak_fn, listen_fn, await_followup, gui = _lazy_followup()
+
+    # SAY → then SHOW happens inside this helper already
+    prompt = _say_then_show_prompt(key)
+
+    # Do NOT re-show or re-say inside await_followup:
+    ans = await_followup(
+        prompt,
+        speak_fn=lambda *_a, **_k: None,          # ← no re-TTS
+        show_fn=lambda *_a, **_k: None,           # ← no duplicate bubble
+        listen_fn=listen_fn,                      # barge-in handled inside await_followup
+        allow_typed=True,
+        allow_voice=True,
+        timeout=timeout,
+    )
+
+    if not ans:
+        p = _PROMPTS["didnt_get_it"]
+        _speak_multilang(p["en"], hi=p["hi"], de=p["de"], fr=p["fr"], es=p["es"])
+        return None
+
+    return parse_fn(ans) if parse_fn else (ans or "").strip()
+
+
+def _parse_int(s: str):
+    m = re.search(r"\b(\d+)\b", s or "")
+    return int(m.group(1)) if m else None
+
+def _parse_idlist(s: str) -> List[int]:
+    return _parse_id_list(s or "")
+
+def _parse_update_fields(s: str) -> List[str]:
+    s = (s or "").lower()
+    out = []
+    if "level" in s or "lvl" in s: out.append("level")
+    if "type" in s: out.append("type")
+    if "nick" in s or "nickname" in s: out.append("nickname")
+    return list(dict.fromkeys(out))
+
+def _best_match(candidate: str, choices: list[str]) -> tuple[Optional[str], float]:
+    """
+    Return (best, score) using both normal and compact comparisons,
+    similar spirit to fuzzy_utils.
+    """
+    cand = (candidate or "").strip()
+    if not cand or not choices:
+        return None, 0.0
+
+    def _compact(s: str) -> str:
+        return "".join(ch for ch in s.casefold() if ch.isalnum())
+
+    c_norm, c_comp = cand.casefold(), _compact(cand)
+    best = None
+    best_score = 0.0
+
+    for ch in choices:
+        n, k = ch.casefold(), _compact(ch)
+        s = max(difflib.SequenceMatcher(None, c_norm, n).ratio(),
+                difflib.SequenceMatcher(None, c_comp, k).ratio())
+        if s > best_score:
+            best, best_score = ch, s
+    return best, best_score
+
 
 # ────────────────────────────────────────────────────────────────
 # Helpers
 # ────────────────────────────────────────────────────────────────
 def _who():
     n = (load_from_memory("name") or "").strip()
-    return n if n else "You"
-
-
-def _open_in_browser(url: str) -> None:
-    try:
-        webbrowser.open(url, new=2)
-    except Exception:
-        pass  # silent fail; we still print URL in GUI
+    if n:
+        return n
+    from utils import selected_language
+    return YOU_WORD.get(selected_language, "You")
 
 
 def speak_then_show(tts_text: str, gui_text: str, title: str = "Nova") -> None:
-    """Speak first (keeps Nova mouth anim), then show the bubble."""
-    speak(tts_text)
-    nova_gui.show_message(title, gui_text)
+    """Speak first (keeps Nova mouth anim), then show the bubble (central helper)."""
+    say_show_texts(tts_text, gui_text, title=title)
+
 
 
 def _t(lang: str, key: str, **kwargs) -> str:
@@ -666,39 +911,54 @@ def _names_suffix(rows: List[Dict], lang: str, limit: int = 15, preview: int = 7
     shown = all_names[:preview]; rest = count - preview
     return f": {', '.join(shown)}, … +{rest} {_MORE.get(lang, _MORE['en'])}."
 
+
 # pick files (single/multi)
 def _pick_files(multiple: bool) -> List[str]:
     try:
         import tkinter as tk
         from tkinter import filedialog
-        root = tk.Tk(); root.withdraw(); root.attributes("-topmost", True)
+        from utils import selected_language as _sel_lang
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+
         patterns = [("Images", "*.png *.jpg *.jpeg *.webp *.gif"), ("All files", "*.*")]
+
         if multiple:
-            paths = filedialog.askopenfilenames(title="Select Images", filetypes=patterns)
+            paths = filedialog.askopenfilenames(
+                title=_t(_sel_lang, "select_images"),
+                filetypes=patterns
+            )
             return list(paths) if paths else []
         else:
-            path = filedialog.askopenfilename(title="Select Image", filetypes=patterns)
+            path = filedialog.askopenfilename(
+                title=_t(_sel_lang, "select_image"),
+                filetypes=patterns
+            )
             return [path] if path else []
     except Exception:
         return []
+
 
 def _pick_csv() -> Optional[str]:
     try:
         import tkinter as tk
         from tkinter import filedialog
-        root = tk.Tk(); root.withdraw(); root.attributes("-topmost", True)
-        path = filedialog.askopenfilename(title="Select Pokémon CSV",
-                                          filetypes=[("CSV files", "*.csv"), ("All files", "*.*")])
+        from utils import selected_language as _sel_lang
+
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+
+        path = filedialog.askopenfilename(
+            title=_t(_sel_lang, "select_pokemon_csv"),
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
+        )
         return path or None
     except Exception:
         return None
 
-def _should_open_after_upload() -> bool:
-    """
-    Auto-open-after-upload is *disabled* by design.
-    We keep this function for backward compatibility with older configs.
-    """
-    return False  # always disabled — we show a clickable link in the GUI bubble instead
 
 def _downloads_dir() -> str:
     home = os.path.expanduser("~")
@@ -719,7 +979,7 @@ def _show_uploading_dialog(
 ):
     try:
         import tkinter as tk
-        import math, random
+        import random
         from pathlib import Path
         try:
             from PIL import Image, ImageTk  # type: ignore
@@ -759,7 +1019,7 @@ def _show_uploading_dialog(
                 star_layers[layer].append(star)
 
         closing=[False]; after={"stars":None,"orbit":None,"pulse":None}
-        def _safe_after(ms, fn): 
+        def _safe_after(ms, fn):
             if closing[0] or not popup.winfo_exists(): return None
             return popup.after(ms, fn)
 
@@ -945,6 +1205,23 @@ def _rows_by_id(rows: List[Dict]) -> Dict[int, Dict]:
         except Exception: continue
     return out
 
+def _find_by_name(rows: List[Dict], name: str) -> Optional[Dict]:
+    target = (name or "").strip().lower()
+    if not target: return None
+    # Prefer exact match, then case-insensitive, then prefix
+    for r in rows:
+        if (r.get("name") or "").strip().lower() == target:
+            return r
+    for r in rows:
+        n = (r.get("name") or "").strip().lower()
+        if n == target or n.replace("-", " ") == target.replace("-", " "):
+            return r
+    for r in rows:
+        n = (r.get("name") or "").strip().lower()
+        if n.startswith(target):
+            return r
+    return None
+
 # ────────────────────────────────────────────────────────────────
 # Command routing helpers
 # ────────────────────────────────────────────────────────────────
@@ -967,8 +1244,10 @@ def is_pokemon_command(cmd: str) -> bool:
     if any(kw in c for kw in kws) or fuzzy_in(c, kws): return True
     if re.search(fr"\b{_TYPES_RE}\b", c, re.I) and re.search(r"\b(pokemon|pokémon|पोकेमोन|type|team|ones?|mine|my|i have)\b", c, re.I):
         return True
-    if _COUNT_RE.search(c): return True
+    if _COUNT_RE.search(c) and re.search(r"\b(pokemon|pokémon|पोकेमोन)\b", c, re.I):
+        return True
     return False
+
 
 # ────────────────────────────────────────────────────────────────
 # Main handler
@@ -986,7 +1265,6 @@ def handle_pokemon_command(cmd: str):
     if re.search(r"\b(open|show)\b.*\b(gallery|image gallery|images)\b", text, re.I) and re.search(r"pok[eé]mon|पोकेमोन", text, re.I):
         url = get_gallery_url()
         speak_then_show(_t(lang, "gallery_open"), _t(lang, "open_gallery_gui", url=url))
-        # no _open_in_browser(url) — user clicks or copies the link in the chat
         return
 
     # upload multiple images — secure toggle via keyword
@@ -996,12 +1274,17 @@ def handle_pokemon_command(cmd: str):
             msg = _t(lang, "no_images_selected"); speak_then_show(msg, msg); return
 
         is_secure = bool(re.search(r"\b(secure|signed)\b", text, re.I))
-        close_popup = _show_uploading_dialog("Uploading Images…", use_system_border=True, title="Nova — Uploading Images", auto_close_ms=0)
+        close_popup = _show_uploading_dialog(
+            _t(lang, "uploading_images"),
+            use_system_border=True,
+            title=_t(lang, "uploading_title_images"),
+            auto_close_ms=0
+        )
         try:
             upload_images_multi(files, secure=is_secure)
             tts = _t(lang, "images_uploaded_say", n=len(files))
             gui = _t(lang, "images_uploaded_gui", n=len(files), who=who) + f"\n{get_gallery_url()}"
-            speak_then_show(tts, gui)  # no auto-open; URL shown for user to click/copy
+            speak_then_show(tts, gui)
         except Exception as e:
             msg = f"{_t(lang, 'image_upload_failed')} ({e})"; speak_then_show(msg, msg)
         finally:
@@ -1025,12 +1308,16 @@ def handle_pokemon_command(cmd: str):
             override_name = f"pokemon_{pid}_{stamp}{ext or '.png'}"
 
         is_secure = bool(re.search(r"\b(secure|signed)\b", text, re.I))
-        close_popup = _show_uploading_dialog("Uploading Image…", use_system_border=True, title="Nova — Uploading Image", auto_close_ms=0)
+        close_popup = _show_uploading_dialog(
+            _t(lang, "uploading_image"),
+            use_system_border=True,
+            title=_t(lang, "uploading_title_image"),
+            auto_close_ms=0
+        )
         try:
             upload_image_single(path, override_filename=override_name, secure=is_secure)
             base = override_name or os.path.basename(path); url = get_gallery_url()
             speak_then_show(_t(lang, "image_uploaded_say"), _t(lang, "image_uploaded_gui", base=base, who=who) + f"\n{url}")
-            # no auto-open; URL shown for user to click/copy
         except Exception as e:
             msg = f"{_t(lang, 'image_upload_failed')} ({e})"; speak_then_show(msg, msg)
         finally:
@@ -1045,10 +1332,13 @@ def handle_pokemon_command(cmd: str):
     if re.search(r"\b(download|save)\b.*\b(image|photo|picture)\b", text, re.I):
         mfile = re.search(r"\b([A-Za-z0-9._-]+\.(?:png|jpe?g|webp|gif))\b", text, re.I)
         if not mfile:
-            msg = _t(lang, "image_download_need_name"); speak_then_show(msg, msg); return
-        filename = mfile.group(1)
-        speak_then_show(_t(lang, "image_download_started"), _t(lang, "image_download_started"))
+            # FOLLOW-UP: ask missing filename
+            filename = _await_slot("ask_filename")
+            if not filename: return
+        else:
+            filename = mfile.group(1)
 
+        speak_then_show(_t(lang, "image_download_started"), _t(lang, "image_download_started"))
         dest = _downloads_dir()
         try:
             if download_image is None:
@@ -1057,7 +1347,6 @@ def handle_pokemon_command(cmd: str):
             try:
                 data = download_image(filename)  # new client: returns bytes
             except TypeError:
-                # backward compatibility (older client that saves to disk)
                 saved_path = download_image(filename, dest)  # type: ignore[arg-type]
                 ok = _t(lang, "image_download_ok", path=saved_path or os.path.join(dest, filename))
                 speak_then_show(ok, ok); return
@@ -1086,9 +1375,17 @@ def handle_pokemon_command(cmd: str):
         return
 
     # download file <filename>  (csv/log/any)
-    m = re.search(r"\bdownload\b.*\b(file|csv|log)\b\s+([A-Za-z0-9._-]+\.\w+)\b", text, re.I)
-    if m:
-        filename = m.group(2); dest = _downloads_dir()
+    mf = re.search(r"\bdownload\b.*\b(file|csv|log)\b\s+([A-Za-z0-9._-]+\.\w+)\b", text, re.I)
+    if re.search(r"\bdownload\b.*\b(file|csv|log)\b", text, re.I):
+        filename = None
+        if mf:
+            filename = mf.group(2)
+        else:
+            # FOLLOW-UP: ask missing filename
+            filename = _await_slot("ask_filename")
+        if not filename:
+            return
+        dest = _downloads_dir()
         try:
             if download_file is None:
                 raise RuntimeError("download helper not available")
@@ -1173,18 +1470,30 @@ def handle_pokemon_command(cmd: str):
             msg = f"{_t(lang, 'team_fetch_failed')} ({e})"; speak_then_show(msg, msg)
         return
 
+    # FOLLOW-UP: add to team with missing ID
+    if re.search(r"\badd\b.*\bto\b.*\bteam\b", text, re.I) and not re.search(r"(?:pokemon\s+)?\b\d+\b", text, re.I):
+        pid = _await_slot("ask_pid", parse_fn=_parse_int)
+        if pid is None: return
+        text = f"add {pid} to team"
+
     # add to team
     m = re.search(r"\badd\b.*?(?:pokemon\s+)?(\d+)\b.*\bto\b.*\bteam\b", text, re.I)
     if m:
         pid = int(m.group(1))
         try:
             resp = team_add(pid)
-            server = (resp.get("Message") if isinstance(resp, dict) else None) or f"Added Pokémon {pid} to team."
+            server = (resp.get("Message") if isinstance(resp, dict) else None) or _t(lang, "team_added_fallback", pid=pid)
             gui = f"{server} — {_t(lang, 'by_word')} {who}."
             speak_then_show(_t(lang, "team_updated"), gui)
         except Exception as e:
             msg = f"{_t(lang, 'team_add_failed')} ({e})"; speak_then_show(msg, msg)
         return
+
+    # FOLLOW-UP: remove from team with missing ID
+    if re.search(r"\b(remove|delete)\b.*\bfrom\b.*\bteam\b", text, re.I) and not re.search(r"(?:pokemon\s+)?\b\d+\b", text, re.I):
+        pid = _await_slot("ask_pid", parse_fn=_parse_int)
+        if pid is None: return
+        text = f"remove {pid} from team"
 
     # remove from team
     m = re.search(r"\b(remove|delete)\b.*?(?:pokemon\s+)?(\d+)\b.*\bfrom\b.*\bteam\b", text, re.I)
@@ -1192,12 +1501,25 @@ def handle_pokemon_command(cmd: str):
         pid = int(m.group(2))
         try:
             resp = team_remove(pid)
-            server = (resp.get("Message") if isinstance(resp, dict) else None) or f"Removed Pokémon {pid} from team."
+            server = (resp.get("Message") if isinstance(resp, dict) else None) or _t(lang, "team_removed_fallback", pid=pid)
             gui = f"{server} — {_t(lang, 'by_word')} {who}."
             speak_then_show(_t(lang, "team_updated"), gui)
         except Exception as e:
             msg = f"{_t(lang, 'team_remove_failed')} ({e})"; speak_then_show(msg, msg)
         return
+
+
+    # FOLLOW-UP: normalize “upgrade team …” when ID/level missing
+    if re.search(r"\b(upgrade|set)\b.*\bteam\b", text, re.I) and not re.search(r"\b(?:pokemon\s*)?\d+.*\blevel\s*\d+\b", text, re.I):
+        pid = _parse_int(text) or _await_slot("ask_pid", parse_fn=_parse_int)
+        if pid is None: return
+        lvl = None
+        m_l = re.search(r"\blevel\s*(\d+)\b", text, re.I)
+        if m_l: lvl = int(m_l.group(1))
+        if lvl is None:
+            lvl = _await_slot("ask_level", parse_fn=_parse_int)
+            if lvl is None: return
+        text = f"upgrade team {pid} to level {lvl}"
 
     # upgrade team member level
     m = re.search(r"\b(upgrade|set)\b.*\bteam\b.*?(?:pokemon\s+)?(\d+).*\blevel\s+(\d+)\b", text, re.I)
@@ -1212,39 +1534,416 @@ def handle_pokemon_command(cmd: str):
         return
 
     # team average level
-    if re.search(r"\bteam\b.*\b(average|avg)\b.*\b(level|lvl)\b", text, re.I):
+    if re.search(r"\b(team\s+average(?:\s+level)?|average\s+team)\b", text, re.I):
         try:
-            resp = team_average_level()
-            data = resp.get("Data") if isinstance(resp, dict) else resp
-            avg = None
-            if isinstance(data, dict): avg = data.get("average") or data.get("avg") or data.get("average_level")
-            if avg is None and isinstance(resp, dict): avg = resp.get("average") or resp.get("avg") or resp.get("average_level")
-            if avg is None:
-                msg = f"{_t(lang, 'team_avg_shown')}\n{resp}"; speak_then_show(msg, msg)
-            else:
-                speak_then_show(_t(lang, "team_avg_is", avg=avg), _t(lang, "team_avg_gui", avg=avg))
+            avg = team_average_level()
+            speak_then_show(_t(lang, "team_avg_shown"),
+                            _t(lang, "team_avg_gui", avg=avg if avg is not None else "—"))
         except Exception as e:
             msg = f"{_t(lang, 'team_avg_failed')} ({e})"; speak_then_show(msg, msg)
         return
 
     # ============================================================
-    # Trainer (profile get/update)
+    # Pokémon list / count / filter by type (with “Did you mean?”)
     # ============================================================
 
-    # show trainer profile
-    if re.search(r"\b(trainer|profile)\b.*\b(show|who am i|me)\b", text, re.I) or re.search(r"\bmy trainer profile\b", text, re.I):
+    # quick "how many/total/count" intent
+    if _COUNT_RE.search(text) and not re.search(r"\b(show|display)\b", text, re.I):
         try:
-            prof = trainer_me()
-            gui = f"{_t(lang, 'trainer_profile_show')}\n{prof}"
-            speak_then_show(_t(lang, 'trainer_profile_show'), gui)
+            rows = list_pokemon()
+            n = len(rows) if isinstance(rows, list) else 0
+            speak_then_show(_t(lang, "you_have_n", n=n), _t(lang, "you_have_n", n=n))
         except Exception as e:
-            msg = f"{_t(lang, 'trainer_profile_failed')} ({e})"; speak_then_show(msg, msg)
+            msg = _t(lang, "error_generic", err=str(e))
+            speak_then_show(msg, msg)
         return
 
-    # set/update trainer nickname
-    m = re.search(r"\b(trainer )?(nickname|name)\b.*\b(is|=)\b\s*([A-Za-z0-9 _-]{2,32})", text, re.I)
+    # FOLLOW-UP: “list type …” when type token missing → ask + Did you mean?
+    if re.search(r"\b(list|show)\b.*\b(type|types)\b", text, re.I) and not re.search(fr"\b{_TYPES_RE}\b", text, re.I):
+        ans = _await_slot("ask_type")
+        if ans is None: return
+        typ = _resolve_type_token(ans, lang)
+
+        if not typ:
+            # candidates: canonical + localized
+            canon = [t.title() for t in _CANON_TYPES]
+            local_rev = _rev_local_map(lang)
+            local_names = [k.title() for k in local_rev.keys()]
+
+            best, score = _best_match(ans, list({*canon, *local_names}))
+            if best and score >= 0.80:
+                typ = _resolve_type_token(best, lang)
+            elif best and 0.60 <= score < 0.80:
+                ok = confirm_did_you_mean(best)
+                if ok is True:
+                    typ = _resolve_type_token(best, lang)
+                else:
+                    ans2 = _await_slot("ask_type")
+                    if not ans2: return
+                    typ = _resolve_type_token(ans2, lang)
+            else:
+                ans2 = _await_slot("ask_type")
+                if not ans2: return
+                typ = _resolve_type_token(ans2, lang)
+
+        if not typ:
+            msg = _t(lang, "type_unknown")
+            speak_then_show(msg, msg)
+            return
+
+        text = f"list {typ} type"  # normalized; falls through
+
+    # list by one/dual/union types (supports “electric”, “electric/water”, “electric and water”)
+    if re.search(r"\b(list|show)\b.*\b(type|types)\b", text, re.I) or re.search(fr"\b{_TYPES_RE}\b", text, re.I):
+        try:
+            rows = list_pokemon()
+            # extract requested types from free text
+            types, mode = _extract_types_and_mode(text, lang)
+            if not types:
+                # nothing to filter → plain list
+                n = len(rows) if isinstance(rows, list) else 0
+                tts = tts_list(rows=rows, lang=lang)
+                speak_then_show(tts, tts if n <= 30 else _t(lang, "you_have_n", n=n))
+                return
+
+            if mode == "dual" and len(types) >= 2:
+                filt = _filter_rows_dual(rows, types[0], types[1])
+                header = _join_types_for_header(types[:2], lang, dual=True)
+            else:
+                filt = _filter_rows_union(rows, types)
+                header = _join_types_for_header(types, lang, dual=False)
+
+            tts = tts_list(rows=filt, lang=lang, header=header)
+            speak_then_show(tts, tts)
+        except Exception as e:
+            msg = _t(lang, "error_generic", err=str(e)); speak_then_show(msg, msg)
+        return
+
+    # plain “list/show pokemon”
+    if re.search(r"\b(list|show)\b.*\b(pokemon|pokémon)\b", text, re.I) and not re.search(r"\b(pokemon|pokémon)\s+\d+\b", text, re.I):
+        try:
+            rows = list_pokemon()
+            tts = tts_list(rows=rows, lang=lang)
+            speak_then_show(tts, tts)
+        except Exception as e:
+            msg = _t(lang, "error_generic", err=str(e)); speak_then_show(msg, msg)
+        return
+
+    # ============================================================
+    # Show one (ID or name) — “Did you mean…?” wired in both paths
+    # ============================================================
+
+    # FOLLOW-UP: “show pokemon …” when ID missing (or support show by name)
+    if re.search(r"\bshow\b.*\b(pokemon|pokémon)\b", text, re.I) and not re.search(r"\b(pokemon|pokémon)\s+\d+\b", text, re.I):
+        rows = list_pokemon()
+        mname = re.search(r"\bshow\b.*?\b(pokemon|pokémon)\b\s+([A-Za-z][A-Za-z0-9._ -]{1,})$", text, re.I)
+        if mname:
+            candidate = mname.group(2).strip()
+            byname = _find_by_name(rows, candidate)
+            if byname:
+                pid = int(byname.get("id"))
+                tts = tts_show(pid=pid, lvl=byname.get("level"), ptype=byname.get("ptype", ""), lang=lang, name=byname.get("name"), use_flair=True)
+                speak_then_show(tts, tts); return
+            else:
+                # Try “Did you mean …?”
+                all_names = [(r.get("name") or "").strip() for r in rows if (r.get("name") or "").strip()]
+                best, score = _best_match(candidate, all_names)
+                if best and score >= 0.80:
+                    chosen = next((r for r in rows if (r.get("name") or "") == best), None)
+                    if chosen:
+                        pid = int(chosen.get("id"))
+                        tts = tts_show(pid=pid, lvl=chosen.get("level"), ptype=chosen.get("ptype", ""), lang=lang, name=chosen.get("name"), use_flair=True)
+                        speak_then_show(tts, tts); return
+                elif best and 0.60 <= score < 0.80:
+                    ok = confirm_did_you_mean(best)
+                    if ok is True:
+                        chosen = next((r for r in rows if (r.get("name") or "") == best), None)
+                        if chosen:
+                            pid = int(chosen.get("id"))
+                            tts = tts_show(pid=pid, lvl=chosen.get("level"), ptype=chosen.get("ptype", ""), lang=lang, name=chosen.get("name"), use_flair=True)
+                            speak_then_show(tts, tts); return
+        # Ask ID interactively as a fallback
+        pid = _await_slot("ask_pid", parse_fn=_parse_int)
+        if pid is None: return
+        text = f"show pokemon {pid}"  # normalized; falls through
+
+    # 4) show one by id (also supports plain "show pikachu" without the word 'pokemon')
+    m = re.search(r"\bshow\b.*\b(pokemon|pokémon)\s+(\d+)\b", text, re.I)
+    if not m:
+        # fallback: try "show <name>"
+        if re.search(r"\bshow\s+[A-Za-z][A-Za-z0-9._ -]{1,}\b", text, re.I) and "team" not in text.lower() and "gallery" not in text.lower():
+            rows = list_pokemon()
+            nm = re.search(r"\bshow\s+([A-Za-z][A-Za-z0-9._ -]{1,})\b", text, re.I)
+            if nm:
+                candidate = nm.group(1).strip()
+                byname = _find_by_name(rows, candidate)
+                if byname:
+                    pid = int(byname.get("id"))
+                    tts = tts_show(pid=pid, lvl=byname.get("level"), ptype=byname.get("ptype", ""), lang=lang, name=byname.get("name"), use_flair=True)
+                    speak_then_show(tts, tts); return
+                else:
+                    all_names = [(r.get("name") or "").strip() for r in rows if (r.get("name") or "").strip()]
+                    best, score = _best_match(candidate, all_names)
+                    if best and score >= 0.80:
+                        chosen = next((r for r in rows if (r.get("name") or "") == best), None)
+                        if chosen:
+                            pid = int(chosen.get("id"))
+                            tts = tts_show(pid=pid, lvl=chosen.get("level"), ptype=chosen.get("ptype", ""), lang=lang, name=chosen.get("name"), use_flair=True)
+                            speak_then_show(tts, tts); return
+                    elif best and 0.60 <= score < 0.80:
+                        ok = confirm_did_you_mean(best)
+                        if ok is True:
+                            chosen = next((r for r in rows if (r.get("name") or "") == best), None)
+                            if chosen:
+                                pid = int(chosen.get("id"))
+                                tts = tts_show(pid=pid, lvl=chosen.get("level"), ptype=chosen.get("ptype", ""), lang=lang, name=chosen.get("name"), use_flair=True)
+                                speak_then_show(tts, tts); return
+        # if still not resolved, continue to ID branch
+
+    m = re.search(r"\bshow\b.*\b(pokemon|pokémon)\s+(\d+)\b", text, re.I)
     if m:
-        nick = m.group(4).strip()
+        pid = int(m.group(2))
+        try:
+            rows = list_pokemon()
+            byid = next((r for r in rows if int(r.get("id")) == pid), None)
+            if not byid:
+                speak_then_show(_t(lang, "pokemon_not_found", pid=pid), _t(lang, "pokemon_not_found", pid=pid))
+                return
+            tts = tts_show(pid=pid, lvl=byid.get("level"), ptype=byid.get("ptype", ""), lang=lang, name=byid.get("name"), use_flair=True)
+            speak_then_show(tts, tts)
+        except Exception as e:
+            msg = _t(lang, "error_generic", err=str(e)); speak_then_show(msg, msg)
+        return
+
+    # ============================================================
+    # Add / Update / Delete
+    # ============================================================
+
+    # FOLLOW-UP: add pokemon with missing slots (name/level/type/nickname)
+    if re.search(r"\b(add|create)\b.*\b(pokemon|pokémon)\b", text, re.I) and not re.search(r"\b(level|type|nickname|nick|name)\b", text, re.I):
+        # Ask name then level then type and optional nickname
+        name = _await_slot("ask_name")
+        if not name: return
+        lvl = _await_slot("ask_level", parse_fn=_parse_int)
+        if lvl is None: return
+        # type with Did you mean?
+        ans = _await_slot("ask_type")
+        if not ans: return
+        ptype = _resolve_type_token(ans, lang)
+        if not ptype:
+            canon = [t.title() for t in _CANON_TYPES]
+            local_rev = _rev_local_map(lang)
+            local_names = [k.title() for k in local_rev.keys()]
+            best, score = _best_match(ans, list({*canon, *local_names}))
+            if best and score >= 0.80:
+                ptype = _resolve_type_token(best, lang)
+            elif best and 0.60 <= score < 0.80:
+                ok = confirm_did_you_mean(best)
+                if ok is True:
+                    ptype = _resolve_type_token(best, lang)
+                else:
+                    ans2 = _await_slot("ask_type")
+                    if not ans2: return
+                    ptype = _resolve_type_token(ans2, lang) or "Normal"
+            else:
+                ans2 = _await_slot("ask_type")
+                if not ans2: return
+                ptype = _resolve_type_token(ans2, lang) or "Normal"
+        if not ptype:
+            ptype = "Normal"
+        nick = _await_slot("ask_nick")
+        nick = None if (nick or "").strip().lower() == "skip" else (nick or "").strip() or None
+        try:
+            add_pokemon(name.strip(), int(lvl), ptype, nick)
+            tts = tts_add(name=name.strip(), lvl=int(lvl), ptype=ptype, nick=nick, lang=lang, use_flair=True)
+            speak_then_show(tts, _t(lang, "added_by", name=name.strip(), who=who))
+        except Exception as e:
+            msg = _t(lang, "error_generic", err=str(e)); speak_then_show(msg, msg)
+        return
+
+    # direct “add <name> level <n> type <t> nickname <x>”
+    m_add = re.search(r"\badd\b\s+([A-Za-z][A-Za-z0-9._ -]{1,})\s+(?:level\s+(\d+))?(?:.*?\btype\s+([^\s]+))?(?:.*?\b(?:nickname|nick)\s+([A-Za-z0-9._ -]+))?", text, re.I)
+    if m_add:
+        name = m_add.group(1).strip()
+        lvl = int(m_add.group(2)) if m_add.group(2) else (_await_slot("ask_level", parse_fn=_parse_int) or 0)
+        ptype_raw = m_add.group(3)
+        nick = m_add.group(4).strip() if m_add.group(4) else None
+        ptype = _resolve_type_token(ptype_raw, lang) if ptype_raw else None
+
+        if not ptype:
+            ans = _await_slot("ask_type")
+            if not ans: return
+            ptype = _resolve_type_token(ans, lang)
+            if not ptype:
+                canon = [t.title() for t in _CANON_TYPES]
+                local_rev = _rev_local_map(lang)
+                local_names = [k.title() for k in local_rev.keys()]
+                best, score = _best_match(ans, list({*canon, *local_names}))
+                if best and score >= 0.80:
+                    ptype = _resolve_type_token(best, lang)
+                elif best and 0.60 <= score < 0.80:
+                    ok = confirm_did_you_mean(best)
+                    if ok is True:
+                        ptype = _resolve_type_token(best, lang)
+                    else:
+                        ans2 = _await_slot("ask_type")
+                        if not ans2: return
+                        ptype = _resolve_type_token(ans2, lang) or "Normal"
+                else:
+                    ans2 = _await_slot("ask_type")
+                    if not ans2: return
+                    ptype = _resolve_type_token(ans2, lang) or "Normal"
+        if not ptype:
+            ptype = "Normal"
+
+        try:
+            add_pokemon(name, int(lvl), ptype, nick)
+            tts = tts_add(name=name, lvl=int(lvl), ptype=ptype, nick=nick, lang=lang, use_flair=True)
+            speak_then_show(tts, _t(lang, "added_by", name=name, who=who))
+        except Exception as e:
+            msg = _t(lang, "error_generic", err=str(e)); speak_then_show(msg, msg)
+        return
+
+    # update (fields: level/type/nickname) — supports multiple fields
+    m_up = re.search(r"\bupdate\b.*\b(pokemon|pokémon)\s+(\d+)\b(.*)$", text, re.I)
+    if m_up:
+        pid = int(m_up.group(2))
+        tail = m_up.group(3) or ""
+        fields = _parse_update_fields(tail)
+        if not fields:
+            # ask what to update
+            picked = _await_slot("ask_update_fields", parse_fn=_parse_update_fields)
+            if not picked: return
+            fields = picked
+
+        changes_gui = []
+        level_only = False 
+        try:
+            if "level" in fields:
+                lvl = _await_slot("ask_level", parse_fn=_parse_int) if not re.search(r"\blevel\s+\d+\b", tail, re.I) else int(re.search(r"\blevel\s+(\d+)\b", tail, re.I).group(1))
+                update_pokemon(pid, level=lvl)
+                lvl_label = LABELS.get(lang, LABELS["en"]).get("level", "level")
+                changes_gui.append(f"{lvl_label} → {lvl}")
+                level_only = True
+
+            if "type" in fields:
+                # ask for type
+                ans = None
+                mty = re.search(r"\btype\s+([^\s]+)\b", tail, re.I)
+                if mty: ans = mty.group(1)
+                if not ans:
+                    ans = _await_slot("ask_type")
+                    if not ans: return
+                ptype = _resolve_type_token(ans, lang)
+                if not ptype:
+                    canon = [t.title() for t in _CANON_TYPES]
+                    local_rev = _rev_local_map(lang)
+                    local_names = [k.title() for k in local_rev.keys()]
+                    best, score = _best_match(ans, list({*canon, *local_names}))
+                    if best and score >= 0.80:
+                        ptype = _resolve_type_token(best, lang)
+                    elif best and 0.60 <= score < 0.80:
+                        ok = confirm_did_you_mean(best)
+                        if ok is True:
+                            ptype = _resolve_type_token(best, lang)
+                        else:
+                            ans2 = _await_slot("ask_type")
+                            if not ans2: return
+                            ptype = _resolve_type_token(ans2, lang)
+                    else:
+                        ans2 = _await_slot("ask_type")
+                        if not ans2: return
+                        ptype = _resolve_type_token(ans2, lang)
+                if not ptype:
+                    msg = _t(lang, "type_unknown"); speak_then_show(msg, msg); return
+                update_pokemon(pid, ptype=ptype)
+                lab = LABELS.get(lang, LABELS["en"])
+                changes_gui.append(f"{lab['type']} → {ptype}")
+                level_only = False
+
+
+            if "nickname" in fields:
+                nick = None
+                mn = re.search(r"\b(?:nickname|nick)\s+([A-Za-z0-9._ -]+)\b", tail, re.I)
+                if mn:
+                    nick = mn.group(1).strip()
+                else:
+                    nick = _await_slot("ask_nick")
+                    if nick is None: return
+                    if nick.strip().lower() == "skip": nick = ""
+                update_pokemon(pid, nickname=(nick or "").strip() or None)
+                lab = LABELS.get(lang, LABELS["en"])
+                changes_gui.append(f"{lab['nickname']} → {(nick or '').strip() or '—'}")
+                level_only = False
+
+
+            if level_only and len(changes_gui) == 1:
+                # pull the numeric level back out for the localized “level updated” line
+                lvl_match = re.search(r"\d+", changes_gui[0])
+                lvl_val = int(lvl_match.group(0)) if lvl_match else None
+                if lvl_val is not None:
+                    speak_then_show(
+                        _t(lang, "updated_level_gui", pid=pid, lvl=lvl_val, who=who),
+                        _t(lang, "updated_level_gui", pid=pid, lvl=lvl_val, who=who),
+                    )
+                else:
+                    # fallback to generic if parsing failed
+                    changes_text = ", ".join(changes_gui)
+                    gui = _t(lang, "updated_fields_gui", pid=pid, changes=changes_text, who=who)
+                    speak_then_show(_t(lang, "team_updated"), gui)
+            else:
+                changes_text = ", ".join(changes_gui)
+                gui = _t(lang, "updated_fields_gui", pid=pid, changes=changes_text, who=who)
+                speak_then_show(_t(lang, "team_updated"), gui)
+
+        except Exception as e:
+            msg = _t(lang, "error_generic", err=str(e)); speak_then_show(msg, msg)
+        return
+
+    # delete
+    m_del = re.search(r"\b(delete|remove)\b.*\b(pokemon|pokémon)\s+(\d+)\b", text, re.I)
+    if m_del:
+        pid = int(m_del.group(3))
+        try:
+            delete_pokemon(pid)
+            speak_then_show(_t(lang, "deleted_gui", pid=pid, who=who),
+                            _t(lang, "deleted_gui", pid=pid, who=who))
+        except Exception as e:
+            msg = _t(lang, "error_generic", err=str(e)); speak_then_show(msg, msg)
+        return
+
+    # ============================================================
+    # Trainer profile / updates
+    # ============================================================
+    if re.search(r"\b(my\s+trainer\s+profile|trainer\s+profile|trainer\s+me)\b", text, re.I):
+        try:
+            prof = trainer_me()
+            if not isinstance(prof, dict):
+                raise RuntimeError("invalid trainer profile response")
+
+            # build a tiny summary line
+            nick = prof.get("nickname") or "—"
+            loc  = prof.get("location") or "—"
+            pr   = prof.get("pronouns") or "—"
+
+            header = _t(lang, "trainer_profile_show")
+            labels = PROFILE_LABELS.get(lang, PROFILE_LABELS["en"])
+            gui = (
+                f"{header}\n"
+                f"• {labels['nickname']}: {nick}\n"
+                f"• {labels['location']}: {loc}\n"
+                f"• {labels['pronouns']}: {pr}"
+            )
+            speak_then_show(header, gui)
+        except Exception as e:
+            msg = f"{_t(lang, 'trainer_profile_failed')} ({e})"
+            speak_then_show(msg, msg)
+        return
+
+    # trainer nickname/location/pronouns updates
+    m_tr_nick = re.search(r"\btrainer\s+(?:nickname|nick)\s+(?:is|=)\s+([A-Za-z0-9._ -]+)\b", text, re.I)
+    if m_tr_nick:
+        nick = m_tr_nick.group(1).strip()
         try:
             trainer_update(nickname=nick)
             speak_then_show(_t(lang, "trainer_nick_updated_say"),
@@ -1253,10 +1952,9 @@ def handle_pokemon_command(cmd: str):
             msg = f"{_t(lang, 'trainer_nick_failed')} ({e})"; speak_then_show(msg, msg)
         return
 
-    # set/update trainer location
-    m = re.search(r"\b(location|city|place)\b.*\b(is|=)\b\s*([A-Za-z0-9 ,._-]{2,48})", text, re.I)
-    if m:
-        loc = m.group(3).strip()
+    m_tr_loc = re.search(r"\b(?:location|loc)\s+(?:is|=)\s+([A-Za-z0-9._ -]+)\b", text, re.I)
+    if m_tr_loc:
+        loc = m_tr_loc.group(1).strip()
         try:
             trainer_update(location=loc)
             speak_then_show(_t(lang, "trainer_loc_updated_say"),
@@ -1265,10 +1963,9 @@ def handle_pokemon_command(cmd: str):
             msg = f"{_t(lang, 'trainer_loc_failed')} ({e})"; speak_then_show(msg, msg)
         return
 
-    # set/update trainer pronouns
-    m = re.search(r"\b(pronoun|pronouns)\b.*\b(is|are|=)\b\s*([A-Za-z /-]{2,24})", text, re.I)
-    if m:
-        pr = m.group(3).strip()
+    m_tr_pr = re.search(r"\b(?:pronouns?)\s+(?:are|=)\s+([A-Za-z/ -]{2,20})\b", text, re.I)
+    if m_tr_pr:
+        pr = m_tr_pr.group(1).strip()
         try:
             trainer_update(pronouns=pr)
             speak_then_show(_t(lang, "trainer_pron_updated_say"),
@@ -1278,152 +1975,31 @@ def handle_pokemon_command(cmd: str):
         return
 
     # ============================================================
-    # Core Pokémon CRUD + LIST/COUNT INTENTS
+    # Help
     # ============================================================
-
-    # 0) “Count / How many … ?” (multilingual) → same output style as list
-    if _COUNT_RE.search(text):
-        types, mode = _extract_types_and_mode(text, lang)
-        rows = list_pokemon()
-
-        if not types:
-            header = tts_list(n=len(rows), lang=lang)
-            final = header + (_names_suffix(rows, lang, limit=15) if len(rows) else "")
-            speak_then_show(final, final); return
-
-        if mode == "dual" and len(types) >= 2:
-            filtered = _filter_rows_dual(rows, types[0], types[1])
-            combo = _join_types_for_header(types[:2], lang, dual=True)
-            header = f"You have {len(filtered)} {combo} Pokémon."
-            final = header + (_names_suffix(filtered, lang, limit=15) if len(filtered) else "")
-            speak_then_show(final, final); return
-
-        if len(types) == 1:
-            filtered = _filter_rows_union(rows, types)
-            header = tts_list(n=len(filtered), lang=lang, ptype=types[0])
-            final = header + (_names_suffix(filtered, lang, limit=15) if len(filtered) else "")
-            speak_then_show(final, final); return
-
-        filtered = _filter_rows_union(rows, types)
-        combo = _join_types_for_header(types, lang, dual=False)
-        header = f"You have {len(filtered)} {combo} Pokémon."
-        final = header + (_names_suffix(filtered, lang, limit=15) if len(filtered) else "")
-        speak_then_show(final, final); return
-
-    # 1) list by type (strict "list/show <type>")
-    m = re.search(fr"\b(list|show)\s+{_TYPES_RE}\b", text, re.I)
-    if m:
-        ptype = m.group(2).title()
-        rows = list_pokemon()
-        filtered = _filter_rows_union(rows, [ptype])
-        header = tts_list(n=len(filtered), lang=lang, ptype=ptype)
-        final = header + (_names_suffix(filtered, lang, limit=15) if len(filtered) else "")
-        speak_then_show(final, final); return
-
-    # 2) list by type (loose follow-up)
-    if re.search(fr"\b{_TYPES_RE}\b", text, re.I) and re.search(r"\b(pokemon|pokémon|पोकेमोन|type|team|ones?|mine|my|i have)\b", text, re.I):
-        typ = re.search(fr"\b{_TYPES_RE}\b", text, re.I).group(1).title()
-        rows = list_pokemon()
-        filtered = _filter_rows_union(rows, [typ])
-        header = tts_list(n=len(filtered), lang=lang, ptype=typ)
-        final = header + (_names_suffix(filtered, lang, limit=15) if len(filtered) else "")
-        speak_then_show(final, final); return
-
-    # 3) list all
-    if re.search(r"\b(list|show)\b.*\b(pokemon|pokémon|pokedex)\b", text, re.I) or text.lower().strip() in {"list pokemon", "show pokemon", "show pokémon"}:
-        rows = list_pokemon()
-        header = tts_list(n=len(rows), lang=lang)
-        final = header + (_names_suffix(rows, lang, limit=15) if len(rows) else "")
-        speak_then_show(final, final); return
-
-    # 4) show one by id
-    m = re.search(r"\bshow\b.*\b(pokemon|pokémon)\s+(\d+)\b", text, re.I)
-    if m:
-        pid = int(m.group(2))
-        rows = list_pokemon()
-        row = next((r for r in rows if int(r.get("id")) == pid), None)
-        if not row:
-            msg = _t(lang, "pokemon_not_found", pid=pid); speak_then_show(msg, msg); return
-        tts = tts_show(pid=pid, lvl=row.get("level"), ptype=row.get("ptype", ""), lang=lang, name=row.get("name"), use_flair=True)
-        speak_then_show(tts, tts); return
-
-    # 5) add (single OR repeated 'add …' blocks)
-    adds = list(re.finditer(r"\badd\b\s+([a-zA-Z]+)\s+level\s+(\d+)\s+([a-zA-Z/]+)(?:\s+nickname\s+([a-zA-Z0-9_-]+))?", text, re.I))
-    if adds:
-        added_rows: List[Dict] = []
-        for m in adds:
-            name, lvl, ptype, nick = m.group(1).title(), int(m.group(2)), m.group(3).title(), (m.group(4) or None)
-            try: add_pokemon(name, lvl, ptype, nick); added_rows.append({"name": name})
-            except Exception: continue
-        if len(added_rows) == 1:
-            single = adds[0]
-            tts = tts_add(name=single.group(1).title(), ptype=single.group(3).title(), lang=lang)
-            speak_then_show(tts, tts)
-        else:
-            header = f"Added {len(added_rows)} Pokémon — by {who}."
-            final = header + (_names_suffix(added_rows, lang, limit=15) if added_rows else "")
-            speak_then_show(final, final)
+    if re.search(r"\b(help|commands?)\b", text, re.I):
+        speak_then_show(SPEAK_HELP.get(lang, SPEAK_HELP["en"]),
+                        HELP_TEXT.get(lang, HELP_TEXT["en"]))
         return
-
-    # 6) update level (single or bulk: ids list/range)
-    m = re.search(r"\bupdate\b\s+(?:pokemon|pokémon)?\s*([0-9,\s\-and]+)\s+\blevel\s+(\d+)\b", text, re.I)
-    if m:
-        ids = _parse_id_list(m.group(1)); lvl = int(m.group(2))
-        rows_all = list_pokemon(); by_id = _rows_by_id(rows_all)
-        touched: List[Dict] = []
-        for pid in ids:
-            try: update_pokemon(pid, level=lvl); r = by_id.get(pid, {"name": f"Pokémon {pid}"}); touched.append({"name": (r.get("name") or f"Pokémon {pid}")})
-            except Exception: continue
-        if len(touched) == 1:
-            pid = ids[0]; row = by_id.get(pid, {"ptype": "Normal", "name": None})
-            tts = tts_update(pid=pid, lvl=lvl, ptype=row.get("ptype", ""), lang=lang, name=row.get("name"))
-            speak_then_show(tts, tts)
-        else:
-            header = f"Updated {len(touched)} Pokémon to level {lvl} — by {who}."
-            final = header + (_names_suffix(touched, lang, limit=15) if touched else "")
-            speak_then_show(final, final)
-        return
-
-    # 7) update type/nickname (single or bulk: ids list/range)
-    m = re.search(r"\bupdate\b\s+(?:pokemon|pokémon)?\s*([0-9,\s\-and]+)(?:.*?\btype\s+([A-Za-z/]+))?(?:.*?\bnickname\s+([A-Za-z0-9_-]+))?", text, re.I)
-    if m and (m.group(2) or m.group(3)):
-        ids = _parse_id_list(m.group(1)); ptype = m.group(2).title() if m.group(2) else None; nick = (m.group(3) or None)
-        rows_all = list_pokemon(); by_id = _rows_by_id(rows_all); touched: List[Dict] = []
-        for pid in ids:
-            try: update_pokemon(pid, ptype=ptype, nickname=nick); r = by_id.get(pid, {"name": f"Pokémon {pid}", "ptype": "Normal"}); touched.append({"name": (r.get("name") or f"Pokémon {pid}")})
-            except Exception: continue
-        if len(touched) == 1:
-            pid = ids[0]; rows = list_pokemon(); row = next((r for r in rows if int(r.get("id")) == pid), {"ptype": "Normal", "level": 0})
-            tts = tts_update(pid=pid, lvl=row.get("level", 0), ptype=row.get("ptype", ""), lang=lang, name=row.get("name"))
-            speak_then_show(tts, tts)
-        else:
-            what=[]
-            if ptype: what.append(f"type {ptype}")
-            if nick: what.append(f"nickname {nick}")
-            header = f"Updated {len(touched)} Pokémon ({' and '.join(what) if what else 'fields'}) — by {who}."
-            final = header + (_names_suffix(touched, lang, limit=15) if touched else "")
-            speak_then_show(final, final)
-        return
-
-    # 8) delete (single or bulk: ids list/range)
-    m = re.search(r"\b(delete|remove)\b\s+(?:pokemon|pokémon)?\s*([0-9,\s\-and]+)\b", text, re.I)
-    if m:
-        ids = _parse_id_list(m.group(2)); rows_all = list_pokemon(); by_id = _rows_by_id(rows_all); removed: List[Dict] = []
-        for pid in ids:
-            r = by_id.get(pid, {"name": None, "ptype": "Normal"})
-            try: delete_pokemon(pid); removed.append({"name": (r.get("name") or f"Pokémon {pid}")})
-            except Exception: continue
-        if len(removed) == 1:
-            pid = ids[0]; r = by_id.get(pid, {"ptype": "Normal"})
-            tts = tts_delete(pid=pid, ptype=r.get("ptype", "Normal"), lang=lang, name=r.get("name")); speak_then_show(tts, tts)
-        else:
-            header = f"Deleted {len(removed)} Pokémon — by {who}."
-            final = header + (_names_suffix(removed, lang, limit=15) if removed else "")
-            speak_then_show(final, final)
-        return
+    
 
     # ============================================================
-    # Help fallback (multilingual)
+    # Catch-all for unclear Pokémon intent → short clarifier
     # ============================================================
-    help_text = HELP_TEXT.get(lang, HELP_TEXT["en"])
-    speak_then_show(SPEAK_HELP.get(lang, SPEAK_HELP["en"]), help_text)
+    try:
+        if is_pokemon_command(text):
+            hint = {
+                "en": "I can list, show, add, update, or delete Pokémon. What would you like me to do?",
+                "hi": "मैं पोकेमोन की सूची दिखा सकती हूँ, किसी एक पोकेमोन को दिखा सकती हूँ, जोड़ सकती हूँ, अपडेट कर सकती हूँ या हटा सकती हूँ। आप क्या करना चाहेंगे?",
+                "fr": "Je peux lister, afficher, ajouter, mettre à jour ou supprimer des Pokémon. Que souhaitez-vous faire ?",
+                "es": "Puedo listar, mostrar, agregar, actualizar o borrar Pokémon. ¿Qué quieres que haga?",
+                "de": "Ich kann Pokémon auflisten, anzeigen, hinzufügen, aktualisieren oder löschen. Was möchtest du tun?"
+            }
+            msg = hint.get(selected_language, hint["en"])
+            speak_then_show(msg, msg)
+            return
+    except Exception:
+        pass
+
+    # Fallback: treat as non-pokemon command
+    return

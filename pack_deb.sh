@@ -163,6 +163,17 @@ cat > "$PKGROOT/DEBIAN/conffiles" << 'EOF'
 /etc/xdg/autostart/nova-tray.desktop
 EOF
 
+# ---------------- Pre-remove: stop running processes ----------------
+cat > "$PKGROOT/DEBIAN/prerm" << 'EOF'
+#!/bin/sh
+set -e
+# Best-effort: stop tray/main if running
+killall -q NovaTray 2>/dev/null || true
+killall -q Nova     2>/dev/null || true
+exit 0
+EOF
+chmod 0755 "$PKGROOT/DEBIAN/prerm"
+
 # ---------------- Post-install: caches + Desktop icons + start tray now ----------------
 cat > "$PKGROOT/DEBIAN/postinst" << 'EOF'
 #!/bin/sh
@@ -213,14 +224,48 @@ exit 0
 EOF
 chmod 0755 "$PKGROOT/DEBIAN/postinst"
 
-# ---------------- Post-remove ----------------
+# ---------------- Post-remove: FULL CLEAN of per-user data ----------------
 cat > "$PKGROOT/DEBIAN/postrm" << 'EOF'
 #!/bin/sh
 set -e
+
+# Refresh caches (icon/menu), ignore errors
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q || true
 if command -v gtk-update-icon-cache >/dev/null 2>&1; then
   gtk-update-icon-cache -q /usr/share/icons/hicolor || true
 fi
+
+# On both "remove" and "purge" do a clean slate for every local user
+for d in /home/*; do
+  [ -d "$d" ] || continue
+  u="$(basename "$d")"
+
+  # App data (cover both names/IDs used historically)
+  rm -rf "$d/.local/share/Nova"        2>/dev/null || true
+  rm -rf "$d/.local/share/NovaAI"      2>/dev/null || true
+
+  # Settings / preferences
+  rm -rf "$d/.config/Nova"             2>/dev/null || true
+  rm -rf "$d/.config/NovaAI"           2>/dev/null || true
+  rm -rf "$d/.config/com.nova."*       2>/dev/null || true
+  rm -rf "$d/.config/com.novaai."*     2>/dev/null || true
+
+  # Caches & logs
+  rm -rf "$d/.cache/Nova"*             2>/dev/null || true
+  rm -rf "$d/.cache/NovaAI"*           2>/dev/null || true
+  rm -rf "$d/.cache/com.nova."*        2>/dev/null || true
+  rm -rf "$d/.cache/com.novaai."*      2>/dev/null || true
+  rm -rf "$d/.local/state/Nova"*       2>/dev/null || true
+  rm -rf "$d/.local/state/NovaAI"*     2>/dev/null || true
+
+  # Per-user autostart + desktop shortcuts
+  rm -f  "$d/.config/autostart/nova-tray.desktop" 2>/dev/null || true
+  rm -f  "$d/Desktop/Nova.desktop"                2>/dev/null || true
+done
+
+# Also clean skel so future users don’t inherit a shortcut
+rm -f /etc/skel/Desktop/Nova.desktop 2>/dev/null || true
+
 exit 0
 EOF
 chmod 0755 "$PKGROOT/DEBIAN/postrm"

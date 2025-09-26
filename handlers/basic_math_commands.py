@@ -12,16 +12,16 @@ except Exception:
     requests = None
 
 # === Popup render ===
-from gui_interface import show_mode_solution
-
+from gui_interface import show_mode_solution  # kept (not removed), though popup now uses say_show_map
 
 # -------------------------------
 # Lazy utils import (no circulars)
 # -------------------------------
 def get_utils():
     from utils import _speak_multilang, selected_language, logger
-    return _speak_multilang, selected_language, logger
-
+    # ✅ also bring in the unified "say first, then show" helper
+    from say_show import say_show_map
+    return _speak_multilang, selected_language, logger, say_show_map
 
 # -------------------------------
 # Global behavior switches
@@ -138,7 +138,6 @@ def parse_currency_request(command: str):
         return amount, from_code, to_code
     return None
 
-
 # --------------------------------------
 # Helpers: Quick/Complex detection logic
 # --------------------------------------
@@ -164,14 +163,11 @@ def is_simple_expression(text: str) -> bool:
         return True
     return False
 
-
 def wants_steps(text: str) -> bool:
     return bool(re.search(FORCE_VERBOSE_PATTERNS, text.lower()))
 
-
 def wants_brief(text: str) -> bool:
     return bool(re.search(FORCE_BRIEF_PATTERNS, text.lower()))
-
 
 # --------------------------------------
 # Popup helpers (render + speech)
@@ -201,7 +197,7 @@ def speak_result_ml(value, *, target=None, unit=None, command=None, popup_hint=T
     - When popup_hint=False (quick answers): DON'T mention the popup.
     - When popup_hint=True (non-quick): Physics-style "check the solution popup".
     """
-    _speak_multilang, _, _ = get_utils()
+    _speak_multilang, _, _, _ = get_utils()
     value_str = str(value)
 
     # Base sentences (no popup mention)
@@ -228,7 +224,7 @@ def speak_result_ml(value, *, target=None, unit=None, command=None, popup_hint=T
         en += " I’ve calculated it — check the solution popup."
         hi += " मैंने गणना कर दी है — पूरी जानकारी पॉप-अप में देखें।"
         fr += " J’ai fait le calcul — consultez la fenêtre contextuelle pour la solution complète."
-        es += " He hecho el cálculo — revisa la ventana emergente para la solución complète."
+        es += " He hecho el cálculo — revisa la ventana emergente para la solución completa."
         de += " Ich habe es berechnet — sieh im Popup die vollständige Lösung."
 
     log_msg = f"🧮 Math: {command} = {value_str}" if command else f"🧮 Math: {value_str}"
@@ -236,7 +232,7 @@ def speak_result_ml(value, *, target=None, unit=None, command=None, popup_hint=T
 
 # --- New multilingual error speakers ---
 def speak_no_quick_fact_ml():
-    _speak_multilang, _, _ = get_utils()
+    _speak_multilang, _, _, _ = get_utils()
     en = "I don’t have a quick fact for that — try rephrasing or use full physics mode for a detailed answer."
     hi = "इसके लिए मेरे पास कोई त्वरित तथ्य नहीं है — कृपया प्रश्न को बदलकर पूछें या विस्तृत उत्तर के लिए फुल फिजिक्स मोड का उपयोग करें।"
     fr = "Je n’ai pas de fait rapide pour cela — reformulez ou utilisez le mode physique complet pour une réponse détaillée."
@@ -245,7 +241,7 @@ def speak_no_quick_fact_ml():
     _speak_multilang(en, hi=hi, fr=fr, es=es, de=de, log_command="ℹ️ No quick fact")
 
 def speak_no_formula_ml():
-    _speak_multilang, _, _ = get_utils()
+    _speak_multilang, _, _, _ = get_utils()
     en = "I couldn't match this question to any formula. Try rephrasing."
     hi = "मैं इस प्रश्न को किसी सूत्र से नहीं जोड़ सकी। कृपया प्रश्न को बदलकर फिर से पूछें।"
     fr = "Je n’ai pas pu associer cette question à une formule. Essayez de reformuler."
@@ -254,14 +250,13 @@ def speak_no_formula_ml():
     _speak_multilang(en, hi=hi, fr=fr, es=es, de=de, log_command="⚠️ No formula")
 
 def speak_need_values_ml():
-    _speak_multilang, _, _ = get_utils()
+    _speak_multilang, _, _, _ = get_utils()
     en = "Missing required values or too many unknowns. Please refine the question."
     hi = "आवश्यक मान गायब हैं या अज्ञात बहुत अधिक हैं। कृपया प्रश्न को स्पष्ट करें।"
     fr = "Valeurs requises manquantes ou trop d’inconnues. Affinez la question, s’il vous plaît."
     es = "Faltan valores requeridos o hay demasiadas incógnitas. Por favor, refina la pregunta."
     de = "Erforderliche Werte fehlen oder es gibt zu viele Unbekannte. Bitte präzisiere die Frage."
     _speak_multilang(en, hi=hi, fr=fr, es=es, de=de, log_command="❗ Need values")
-
 
 # --------------------------------------
 # Unit conversions with breadcrumb steps
@@ -291,7 +286,6 @@ def convert_units_with_steps(expr: str) -> tuple:
         steps.insert(0, f"📦 Category: {unit_category}")
 
     return expr, steps
-
 
 # --------------------------------------
 # Currency conversion (live)
@@ -329,7 +323,6 @@ def handle_currency_conversion(command: str):
     except Exception:
         return None, [f"❌ Unable to fetch currency rates for {from_curr}→{to_curr}."]
 
-
 # --------------------------------------
 # Trig simplification
 # --------------------------------------
@@ -343,7 +336,6 @@ def simplify_trig_expression(expr: str):
     except Exception:
         pass
     return None, []
-
 
 # --------------------------------------
 # Geometry areas
@@ -383,7 +375,6 @@ def handle_geometry_formulas(command: str):
         return None, []
     return None, []
 
-
 # --------------------------------------
 # Degree ↔ Radian conversions
 # --------------------------------------
@@ -411,7 +402,6 @@ def handle_angle_conversions(command: str):
     except Exception:
         return None, []
     return None, []
-
 
 # --------------------------------------
 # Combinatorics (n!, nPr, nCr)
@@ -460,7 +450,6 @@ def handle_combinatorics(command: str):
 
     return None, []
 
-
 # --------------------------------------
 # Logs / exponents / scientific notation
 # --------------------------------------
@@ -502,7 +491,6 @@ def handle_logarithmic_expression(command: str):
         return None, []
     return None, []
 
-
 def handle_scientific_notation(command: str):
     steps = []; c = command.lower()
 
@@ -530,7 +518,6 @@ def handle_scientific_notation(command: str):
         return round(val, DEC_PLACES), steps
 
     return None, []
-
 
 # --------------------------------------
 # Temperature conversions
@@ -596,7 +583,6 @@ def handle_temperature_conversion(command: str):
         return None, []
     return None, []
 
-
 # --------------------------------------
 # Basic statistics
 # --------------------------------------
@@ -638,7 +624,6 @@ def handle_statistics(command: str):
 
     return round(mean_val, DEC_PLACES), steps
 
-
 # --------------------------------------
 # Time math (hours/minutes add/sub)
 # --------------------------------------
@@ -678,7 +663,6 @@ def handle_time_math(command: str):
     steps += [f"Back to HH:MM → {h} hours {m} minutes"]
     return f"{h} hours {m} minutes", steps
 
-
 # --------------------------------------
 # Spoken phrase → evaluable expression
 # --------------------------------------
@@ -705,13 +689,11 @@ def translate_to_expression(command: str):
 
     return expr, steps
 
-
 def evaluate_expression(expr: str):
     try:
         return eval(expr, {"__builtins__": None}, math.__dict__)
     except Exception:
         raise ValueError("Invalid math expression.")
-
 
 # --------------------------------------
 # Hint builder (concise scaffolding)
@@ -793,7 +775,6 @@ def build_hints(command: str, topic: str, full_steps: list):
         ]
     return hints
 
-
 # --- Failure classifier (drives which error line to speak) ---
 def _classify_failure(text: str):
     t = (text or "").lower()
@@ -809,12 +790,11 @@ def _classify_failure(text: str):
         return "no_formula"
     return "no_quick_fact"
 
-
 # --------------------------------------
 # Master handler (Quick + Hint Mode)
 # --------------------------------------
 def handle_basic_math(command: str):
-    _speak_multilang, selected_language, log = get_utils()
+    _speak_multilang, selected_language, log, say_show_map = get_utils()
     text = command or ""
     try:
         # QUICK PATH: trivial arithmetic → speech only (NO popup mention)
@@ -902,9 +882,6 @@ def handle_basic_math(command: str):
             steps = extra + [f"Evaluated: {expr} = {result}"]
             topic = "expr"
 
-        # Speech WITH popup hint (non-quick path)
-        speak_result_ml(result, command=command, popup_hint=True)
-
         # Decide whether to show full steps or hint mode
         present_steps = steps
         showing = "steps"
@@ -914,7 +891,7 @@ def handle_basic_math(command: str):
                 present_steps = build_hints(command, topic, steps)
                 showing = "hints"
 
-        # POPUP: build HTML and emit
+        # POPUP HTML
         topic_title = {
             "currency": "Currency Conversion",
             "geometry": "Geometry",
@@ -930,27 +907,52 @@ def handle_basic_math(command: str):
         }.get(topic or "expr", "Expression")
 
         html = _html(f"Math — {topic_title}", result, present_steps, showing=showing)
-        show_mode_solution("math", html)
+
+        # ✅ SAY (multilingual) → THEN SHOW POPUP (after speech)
+        # (Keep wording simple; the popup itself carries the detailed steps)
+        value_str = str(result)
+        en = f"The answer is {value_str}."
+        hi = f"उत्तर {value_str} है।"
+        fr = f"La réponse est {value_str}."
+        es = f"La respuesta es {value_str}."
+        de = f"Die Antwort ist {value_str}."
+        say_show_map(
+            title=f"Math — {topic_title}",
+            en=en, hi=hi, fr=fr, es=es, de=de,
+            html=html,
+            log_command=f"🧮 Math: {command} = {value_str}"
+        )
 
         return result
 
     except Exception as e:
-        _speak_multilang, _, log = get_utils()
+        _speak_multilang, _, log, say_show_map = get_utils()
         log.error(f"❌ Math Error: {e}")
 
-        # Classify failure → speak appropriate line
+        # Classify failure → sentence + title
         kind = _classify_failure(text)
         if kind == "need_values":
-            speak_need_values_ml()
+            en = "Missing required values or too many unknowns. Please refine the question."
+            hi = "आवश्यक मान गायब हैं या अज्ञात बहुत अधिक हैं। कृपया प्रश्न को स्पष्ट करें।"
+            fr = "Valeurs requises manquantes ou trop d’inconnues. Affinez la question, s’il vous plaît."
+            es = "Faltan valores requeridos o hay demasiadas incógnitas. Por favor, refina la pregunta."
+            de = "Erforderliche Werte fehlen oder es gibt zu viele Unbekannte. Bitte präzisiere die Frage."
             title = "Math — Need Values"
         elif kind == "no_formula":
-            speak_no_formula_ml()
+            en = "I couldn't match this question to any formula. Try rephrasing."
+            hi = "मैं इस प्रश्न को किसी सूत्र से नहीं जोड़ सकी। कृपया प्रश्न को बदलकर फिर से पूछें।"
+            fr = "Je n’ai pas pu associer cette question à une formule. Essayez de reformuler."
+            es = "No pude asociar esta pregunta con ninguna fórmula. Intenta reformular."
+            de = "Ich konnte diese Frage keiner Formel zuordnen. Bitte formuliere sie neu."
             title = "Math — No Formula"
         else:
-            speak_no_quick_fact_ml()
+            en = "I don’t have a quick fact for that — try rephrasing or use full physics mode for a detailed answer."
+            hi = "इसके लिए मेरे पास कोई त्वरित तथ्य नहीं है — कृपया प्रश्न को बदलकर पूछें या विस्तृत उत्तर के लिए फुल फिजिक्स मोड का उपयोग करें।"
+            fr = "Je n’ai pas de fait rapide pour cela — reformulez ou utilisez le mode physique complet pour une réponse détaillée."
+            es = "No tengo un dato rápido para eso — intenta reformular o usa el modo de física completo para una respuesta detallada."
+            de = "Dazu habe ich keinen Schnellfakt — formuliere bitte um oder nutze den vollständigen Physik-Modus für eine detaillierte Antwort."
             title = "Math — Not a Quick Fact"
 
-        # Error popup with details
         err_steps = [
             "❌ Could not evaluate expression.",
             f"Input: {text}",
@@ -958,6 +960,12 @@ def handle_basic_math(command: str):
             f"Details: {e}"
         ]
         html = _html(title, "—", err_steps, showing="steps")
-        show_mode_solution("math", html)
-        return None
 
+        # ✅ Speak the appropriate error line first, then show the error popup
+        say_show_map(
+            title=title,
+            en=en, hi=hi, fr=fr, es=es, de=de,
+            html=html,
+            log_command="❌ Math Error"
+        )
+        return None

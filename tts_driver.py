@@ -8,7 +8,14 @@ import os, sys, stat, json, platform, tempfile, subprocess, shutil, asyncio, thr
 from typing import Optional, List
 from pathlib import Path
 
-# -----------------------------------------------------------------------------
+# ─────────────────────────────────────────────────────────────────────────────
+# Platform pop-up control (headless child processes)
+# ─────────────────────────────────────────────────────────────────────────────
+# On Windows, CREATE_NO_WINDOW prevents the black console window.
+# On macOS/Linux, start_new_session=True fully detaches the child.
+_WIN_NO_WINDOW = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+# ----------------------------------------------------------------------------- 
 # Debug helper
 # -----------------------------------------------------------------------------
 def _dbg(msg: str) -> None:
@@ -26,7 +33,7 @@ else:
 PIPER_MANIFEST = str(REPO_ROOT / "third_party" / "piper" / "models_manifest.json")
 
 def _load_piper_manifest(path: str = PIPER_MANIFEST) -> dict:
-    # CHANGED: be tolerant if manifest is missing/invalid
+    # Be tolerant if manifest is missing/invalid
     try:
         with open(path, "r", encoding="utf-8") as f:
             man = json.load(f)
@@ -43,7 +50,7 @@ def _load_piper_manifest(path: str = PIPER_MANIFEST) -> dict:
         v["model"]  = str((REPO_ROOT / v["model"]).resolve())
         v["config"] = str((REPO_ROOT / v["config"]).resolve())
 
-    # Make exe paths absolute unless they are already absolute or bare command names
+    # Make exe paths absolute unless already absolute or bare command names
     ex = man.get("exe") or {}
     def _is_cmd_name(p: str) -> bool:
         return (os.path.sep not in p) and (os.altsep is None or os.altsep not in p)
@@ -98,8 +105,14 @@ class _Player:
 
     def _spawn(self, cmd: List[str]):
         _dbg(f"spawn: {' '.join(cmd)}")
+        # HEADLESS: no console on Windows, detached session elsewhere
         self._proc = subprocess.Popen(
-            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            close_fds=True,
+            creationflags=_WIN_NO_WINDOW,
+            start_new_session=True,
         )
         try:
             self._proc.wait()
@@ -420,7 +433,7 @@ def _pick_piper_model(manifest: dict, lang_code: str) -> Optional[dict]:
 class PiperSynth(_BaseTTS):
     def __init__(self, manifest_path: str = PIPER_MANIFEST) -> None:
         super().__init__()
-        self._manifest = _load_piper_manifest(manifest_path)  # tolerant load
+        self._manifest = _load_piper_manifest(manifest_path)
         self._exe = _resolve_piper_exe(self._manifest)
         self._bindir = os.path.dirname(self._exe) if self._exe else None
 
@@ -434,7 +447,7 @@ class PiperSynth(_BaseTTS):
         m = model["model"]
         c = model.get("config") or (m + ".json")
 
-        # CHANGED: only pass -s when speaker > 0 (safe for single-speaker models)
+        # only pass -s when speaker > 0 (safe for single-speaker models)
         spk = int(model.get("speaker", 0))
         fd, wav_path = tempfile.mkstemp(suffix=".wav"); os.close(fd)
 
@@ -456,8 +469,16 @@ class PiperSynth(_BaseTTS):
                 env.setdefault("ESPEAK_DATA", esd)
 
         try:
+            # HEADLESS Piper spawn
             self._proc = subprocess.Popen(
-                cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True, env=env
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                close_fds=True,
+                env=env,
+                creationflags=_WIN_NO_WINDOW,
+                start_new_session=True,
             )
             try:
                 self._proc.communicate(input=text.encode("utf-8"), timeout=None)
@@ -523,7 +544,7 @@ class PolicyTTS(_BaseTTS):
             if base == "en":
                 _dbg("route: win EN → SAPI(David, per-call) → Piper → Edge → gTTS")
                 try:
-                    sapi = Pyttsx3Synth(platform_hint="win")  # per-call engine to avoid thread COM quirks
+                    sapi = Pyttsx3Synth(platform_hint="win")  # per-call engine to avoid COM quirks
                     if sapi.speak(text, "en-US"):
                         return
                 except Exception:

@@ -12,11 +12,12 @@ COMMAND_MAP = {
         "ouvre chatgpt", "abre chatgpt", "öffne chatgpt"
     ],
     "search_google": [
-        "search on google", "google पर खोजें", "google खोजो",
+        "search on google", "search for", "google पर खोजें", "google खोजो",
         "recherche sur google", "buscar en google", "google durchsuchen"
     ],
     "play_music": [
-        "play music", "गाना चलाओ", "गीत बजाओ",
+        "play music", "play song", "play track", "open youtube and play",
+        "गाना चलाओ", "गीत बजाओ",
         "jouer de la musique", "reproducir música", "musik abspielen"
     ],
 
@@ -719,7 +720,7 @@ COMMAND_MAP = {
         "location is", "city is", "place is",
         "pronouns are", "pronoun is",
         # Hindi
-        "ट्रेनर निकनेम है", "निकनेम है", "ट्रेनर नाम है", "नाम है",
+        "트्रेनर निकनेम है", "निकनेम है", "트्रेनर नाम है", "नाम है",
         "स्थान है", "शहर है", "जगह है",
         "प्रोनाउन हैं", "प्रोनाउन है",
         # French

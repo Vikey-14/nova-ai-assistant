@@ -1,7 +1,7 @@
 # tray_linux.py — Linux tray with Windows/Mac parity (green dot when ON; nothing when OFF)
 from __future__ import annotations
 
-import os, sys, threading, time, math, signal
+import os, sys, threading, time, math, signal, socket
 from pathlib import Path
 
 # --- .env support (tray uses same keys as main) ---
@@ -48,7 +48,6 @@ except Exception:
     def set_wake_mode(_v: bool, *_, **__): return None
     def load_settings() -> dict: return {}
 
-
 # ---------- wake listener plumbing ----------
 try:
     from wake_word_listener import start_wake_listener_thread, stop_wake_listener_thread
@@ -85,8 +84,7 @@ def _pid_alive(pid: int) -> bool:
         return psutil.pid_exists(pid)
     except Exception:
         try:
-            # kill(pid, 0) → no signal, just error check
-            os.kill(pid, 0)
+            os.kill(pid, 0)  # “probe” signal
             return True
         except ProcessLookupError:
             return False
@@ -99,7 +97,6 @@ def _main_is_running_fast() -> bool:
     pid = _read_pidfile()
     if pid:
         return _pid_alive(pid)
-    # Rare fallback if PID file missing
     try:
         return bool(_backend and _backend.is_main_running())
     except Exception:
@@ -168,23 +165,18 @@ _last_wake_state = None
 def _wake_is_on() -> bool:
     try:
         v = get_wake_mode()
-        # Default to ON if unset/missing
-        return True if v is None else bool(v)
+        return True if v is None else bool(v)  # default ON if unset
     except Exception:
-        return True  # be generous on errors for first-run UX
+        return True
 
 def _set_wake_on(on: bool):
     """Persist wake state in a way that works with both old/new utils signatures."""
     try:
-        # legacy signature (Windows/Mac builds)
-        set_wake_mode(bool(on), persist=True, notify=True)
+        set_wake_mode(bool(on), persist=True, notify=True)  # legacy signature
     except TypeError:
-        # Linux utils.set_wake_mode(enabled) only
-        set_wake_mode(bool(on))
+        set_wake_mode(bool(on))  # linux-only signature
     except Exception:
-        # keep tray usable even if persistence fails
         pass
-
 
 def _wake_label() -> str:
     return f"Wake Mode   {'● ON' if _wake_is_on() else '○ OFF'}"
@@ -197,7 +189,6 @@ def _toggle_wake(icon: "pystray.Icon|None" = None):
         else:         stop_wake_listener_thread()
     except Exception:
         pass
-    # refresh menu/icon immediately
     if icon is not None:
         try: icon.icon = _state_icon(new_state)
         except Exception: pass
@@ -205,18 +196,43 @@ def _toggle_wake(icon: "pystray.Icon|None" = None):
         except Exception: pass
 
 # ---------- UI bits (tip + exit) ----------
-def _center_no_flash(win: "tk.Toplevel", w: int, h: int):
-    win.withdraw()
-    win.update_idletasks()
-    sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
-    x, y = (sw - w)//2, (sh - h)//2
-    win.geometry(f"{w}x{h}+{x}+{y}")
-    win.deiconify()
+def _center_no_flinch(win: "tk.Toplevel", w: int, h: int):
+    """
+    EXACT center with no visible jump:
+      - withdraw → compute → set geometry → deiconify
+    """
     try:
-        win.lift(); win.focus_force()
-        win.after(10, lambda: win.attributes("-topmost", False))
+        win.withdraw()
+        win.update_idletasks()
+        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+        x, y = (sw - w)//2, (sh - h)//2
+        win.geometry(f"{w}x{h}+{x}+{y}")
+        win.deiconify()
+        try:
+            win.lift(); win.focus_force()
+            win.after(10, lambda: win.attributes("-topmost", False))
+        except Exception:
+            pass
     except Exception:
         pass
+
+def _linux_fonts():
+    """
+    Use Linux-friendly fonts but keep size/spacing identical to Win/Mac layout.
+    Prefer Noto Sans; fall back to TkDefaultFont family.
+    """
+    fam_title = fam_tip = None
+    try:
+        # If Noto Sans is present, use it.
+        fam_title = fam_tip = "Noto Sans"
+        _ = tkfont.Font(family=fam_title, size=11)  # probe
+    except Exception:
+        try:
+            base = tkfont.nametofont("TkDefaultFont")
+            fam_title = fam_tip = base.actual("family")
+        except Exception:
+            fam_title = fam_tip = "Sans"
+    return (fam_title, 11), (fam_tip, 10)
 
 def _show_tray_tip():
     if tk is None: return
@@ -225,7 +241,8 @@ def _show_tray_tip():
         pop.title("Nova • Quick Start")
         pop.configure(bg="#1a103d")
         pop.resizable(False, False)
-        pop.attributes("-topmost", True)
+        try: pop.attributes("-topmost", True)
+        except Exception: pass
 
         WIDTH, HEIGHT = 420, 300
         canvas = tk.Canvas(pop, width=WIDTH, height=HEIGHT,
@@ -246,12 +263,13 @@ def _show_tray_tip():
                 dx = 0.2 * layer
                 for s in stars:
                     canvas.move(s, dx, 0)
-                    if (coords := canvas.coords(s)) and coords[0] > WIDTH:
+                    coords = canvas.coords(s)
+                    if coords and coords[0] > WIDTH:
                         canvas.move(s, -WIDTH, 0)
             if pop.winfo_exists(): pop.after(50, anim)
         pop.after(50, anim)
 
-        # optional orbiting logo (parity with Win/Mac)
+        # orbiting logo (optional)
         try:
             img_path = resource_path("nova_face_glow.png")
             _img = _PILImage.open(img_path).resize((80, 80))
@@ -271,19 +289,32 @@ def _show_tray_tip():
         except Exception:
             pass
 
-        canvas.create_text(WIDTH//2, 156, text="Nova is running in the system tray.",
-                           font=("Segoe UI", 11), fill="#dcdcff", width=WIDTH-60, justify="center")
-        canvas.create_text(WIDTH//2, 198,
-                           text="Tip: If you don’t see the tray icon, click the ^ near the clock.",
-                           font=("Segoe UI", 10), fill="#9aa0c7", width=WIDTH-60, justify="center")
+        # ----- Linux copy + fonts (same y-positions as Win/Mac) -----
+        f_title, f_tip = _linux_fonts()
 
+        line1 = "Nova is running in your system tray."
+        line2 = ("Tip: Tray location depends on your desktop (GNOME, KDE, etc.).\n"
+                 "Check your panel’s system tray or status area and pin Nova there.")
+
+        canvas.create_text(WIDTH//2, 148, text=line1,
+                           font=f_title, fill="#dcdcff",
+                           width=WIDTH-60, justify="center")
+        canvas.create_text(WIDTH//2, 198, text=line2,
+                           font=f_tip, fill="#9aa0c7",
+                           width=WIDTH-60, justify="center")
+
+        base, hover = "#5a4fcf", "#9b95ff"
         btn = tk.Button(pop, text="Got it!", command=pop.destroy,
-                        font=("Segoe UI", 10, "bold"),
-                        bg="#5a4fcf", fg="white", activebackground="#9b95ff",
-                        activeforeground="white", relief="flat", bd=0, padx=16, pady=8, cursor="hand2")
+                        font=(f_tip[0], 10, "bold"),
+                        bg=base, fg="white",
+                        activebackground=hover, activeforeground="white",
+                        relief="flat", bd=0, padx=16, pady=8, cursor="hand2")
+        btn.bind("<Enter>", lambda e: btn.config(bg=hover))
+        btn.bind("<Leave>", lambda e: btn.config(bg=base))
         canvas.create_window(WIDTH//2, HEIGHT-36, window=btn)
 
-        _center_no_flash(pop, WIDTH, HEIGHT)
+        # EXACT center with no visible jump
+        _center_no_flinch(pop, WIDTH, HEIGHT)
     except Exception:
         pass
 
@@ -295,7 +326,8 @@ def _confirm_exit_tray() -> bool:
         w.title("Exit Tray?")
         w.configure(bg="#1a103d")
         w.resizable(False, False)
-        w.attributes("-topmost", True)
+        try: w.attributes("-topmost", True)
+        except Exception: pass
 
         WIDTH, HEIGHT = 420, 300
         canvas = tk.Canvas(w, width=WIDTH, height=HEIGHT, bg="#1a103d", highlightthickness=0, bd=0)
@@ -315,7 +347,8 @@ def _confirm_exit_tray() -> bool:
                 dx = 0.2 * layer
                 for s in stars:
                     canvas.move(s, dx, 0)
-                    if (coords := canvas.coords(s)) and coords[0] > WIDTH:
+                    coords = canvas.coords(s)
+                    if coords and coords[0] > WIDTH:
                         canvas.move(s, -WIDTH, 0)
             if w.winfo_exists(): w.after(50, anim)
         w.after(50, anim)
@@ -339,13 +372,19 @@ def _confirm_exit_tray() -> bool:
         except Exception:
             pass
 
+        # Linux-friendly fonts for dialog
+        try:
+            f_title, _ = _linux_fonts()
+        except Exception:
+            f_title = ("Sans", 11)
+
         canvas.create_text(WIDTH//2, 160,
                            text="Are you sure you want to exit the tray?",
-                           font=("Segoe UI", 11), fill="#dcdcff",
+                           font=f_title, fill="#dcdcff",
                            justify="center", width=WIDTH-60)
         canvas.create_text(WIDTH//2, 196,
                            text="Nova will stop running until you start it again (Nova Tray).",
-                           font=("Segoe UI", 11), fill="#dcdcff",
+                           font=f_title, fill="#dcdcff",
                            justify="center", width=WIDTH-60)
 
         result = {"ok": False}
@@ -358,7 +397,7 @@ def _confirm_exit_tray() -> bool:
 
         def _btn(parent, text, base, hover, cmd):
             b = tk.Canvas(parent, bg="#1a103d", highlightthickness=0, bd=0)
-            f = ("Segoe UI", 10, "bold")
+            f = ("Sans", 10, "bold")
             label = b.create_text(0, 0, text=text, anchor="nw", fill="white", font=f)
             b.update_idletasks()
             tw = b.bbox(label)[2] - b.bbox(label)[0]
@@ -381,7 +420,7 @@ def _confirm_exit_tray() -> bool:
         w.bind("<Escape>", lambda e: finish(False))
         w.bind("<Return>", lambda e: finish(False))
 
-        _center_no_flash(w, WIDTH, HEIGHT)
+        _center_no_flinch(w, WIDTH, HEIGHT)
         w.wait_window()
         return bool(result["ok"])
     except Exception:
@@ -419,7 +458,6 @@ def _hide_nova():
 def _exit_nova():
     # 1) Polite IPC to main
     try:
-        import socket
         with socket.create_connection(("127.0.0.1", 50574), timeout=0.6) as c:
             c.sendall(b"EXIT\n")
             try:
@@ -429,12 +467,10 @@ def _exit_nova():
             return True
     except Exception:
         pass
-
     # 2) OS-level fallback
     if not _backend:
         return False
     return _backend.close_window()
-
 
 def _exit_tray(icon: "pystray.Icon"):
     try: stop_wake_listener_thread()
@@ -455,12 +491,8 @@ def _build_menu(icon: "pystray.Icon"):
         MenuItem("Hide Nova",  lambda _i: _hide_nova()),
         MenuItem("Exit Nova",  lambda _i: _exit_nova()),
         MenuItem(_wake_label(), lambda _i: _toggle_wake(icon)),
-        MenuItem("Help", Menu(
-            MenuItem("Tray Tip", lambda _i: _tk_after(_show_tray_tip))
-        )),
-        MenuItem("Advanced", Menu(
-            MenuItem("Exit Tray…", lambda _i: _exit_tray(icon))
-        )),
+        Menu(MenuItem("Tray Tip", lambda _i: _tk_after(_show_tray_tip))),  # Help submenu with Tray Tip
+        Menu("Advanced", MenuItem("Exit Tray…", lambda _i: _exit_tray(icon))),
     )
 
 # ---------- background watchers ----------
@@ -480,6 +512,50 @@ def _watch_wake(icon: "pystray.Icon"):
         except Exception:
             pass
         time.sleep(0.5)
+
+# ---------- IPC server (HELLO/TIP/OPEN_AND_TIP) for Linux parity ----------
+_SINGLETON_ADDR = ("127.0.0.1", 50573)
+
+def _start_ipc_server():
+    """Accept HELLO/TIP/OPEN_AND_TIP from main.py, same as Windows/mac tray."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        s.bind(_SINGLETON_ADDR)
+    except OSError:
+        # already running (another tray instance)
+        return
+
+    s.listen(2)
+
+    def _serve():
+        while True:
+            try:
+                conn, _ = s.accept()
+            except Exception:
+                break
+            with conn:
+                try:
+                    cmd = (conn.recv(128) or b"").decode("utf-8", "ignore").strip().upper()
+                except Exception:
+                    cmd = ""
+                if cmd == "HELLO":
+                    try: conn.sendall(b"NOVA_TRAY\n")
+                    except Exception: pass
+                elif cmd == "TIP":
+                    try: _tk_after(_show_tray_tip)
+                    except Exception: pass
+                elif cmd == "OPEN_AND_TIP":
+                    try:
+                        _open_nova_and_focus()
+                        _tk_after(_show_tray_tip)
+                    except Exception:
+                        pass
+                else:
+                    try: conn.sendall(b"OK\n")
+                    except Exception: pass
+
+    threading.Thread(target=_serve, daemon=True).start()
 
 # ---------- signal handling (clean shutdown) ----------
 def _install_signal_handlers(icon: "pystray.Icon"):
@@ -506,36 +582,31 @@ def start_tray_in_thread():
     t.start()
     return t
 
-
 def _run_tray():
     _init_tk()
     icon = pystray.Icon("NovaTray", icon=_state_icon(_wake_is_on()), title="Nova Tray")
     icon.menu = _build_menu(icon)
 
     _install_signal_handlers(icon)
+    _start_ipc_server()  # let main.py send HELLO/TIP/OPEN_AND_TIP
 
-    # --- Initial listener + icon/menu sync (so it starts in the correct state) ---
+    # Initial listener + icon/menu sync
     try:
         cur = _wake_is_on()
         if cur:
             start_wake_listener_thread()
         else:
             stop_wake_listener_thread()
-        # reflect the state immediately
         icon.icon = _state_icon(cur)
         icon.menu = _build_menu(icon)
-        try:
-            icon.update_menu()
-        except Exception:
-            pass
+        try: icon.update_menu()
+        except Exception: pass
     except Exception:
         pass
 
-    # Keep everything in sync thereafter
     threading.Thread(target=_watch_wake, args=(icon,), daemon=True).start()
 
     try:
         icon.run()
     except Exception:
         pass
-

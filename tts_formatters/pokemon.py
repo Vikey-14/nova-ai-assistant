@@ -133,7 +133,7 @@ def _label(pid: int, name: str | None, lang: str) -> str:
     base = f"{poke_word} {pid}"
     return f"{name} ({base})" if name else base
 
-# --- builders ---
+
 def tts_add(name: str, ptype: str, lang: str) -> str:
     L = _lang(lang); tpl = TEMPLATES[L]["add"]
     return tpl.format(flair=_flair(ptype, L), name=name, who=_who())

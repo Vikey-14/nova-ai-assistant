@@ -12,6 +12,72 @@ logger = logging.getLogger("NOVA")
 # === NEW: use utils for PyInstaller-safe paths and UTF-8 JSON ===
 from utils import data_path, load_json_utf8, pkg_path
 
+
+# --- SAY→SHOW helpers (match Physics behavior) ---
+from say_show import say_show  # add this import near the top
+
+def _is_gui_visible() -> bool:
+    """
+    Best-effort: returns True if the main GUI is visible.
+    Mirrors the Physics helper so concise answers can SAY→SHOW.
+    """
+    try:
+        from utils import is_gui_visible
+        return bool(is_gui_visible())
+    except Exception:
+        pass
+    try:
+        from utils import is_main_window_visible
+        return bool(is_main_window_visible())
+    except Exception:
+        pass
+    try:
+        from utils import is_gui_running
+        return bool(is_gui_running())
+    except Exception:
+        pass
+    try:
+        from utils import load_settings
+        s = load_settings() or {}
+        for k in ("gui_visible", "ui_visible", "window_visible", "main_window_shown", "gui_open"):
+            if k in s:
+                return bool(s.get(k))
+    except Exception:
+        pass
+    return False
+
+def _say_or_show_ml(*, en: str, hi: str=None, fr: str=None, es: str=None, de: str=None):
+    """
+    If GUI is up → send a chat bubble AND speak (say_show).
+    If GUI isn't visible → speak only (uses say_ml you already have).
+    """
+    if _is_gui_visible():
+        # fall back to EN if others not provided
+        say_show(en, hi=hi or en, fr=fr or en, es=es or en, de=de or en, title="Nova")
+    else:
+        # chemistry already defines say_ml(..) later; this will work
+        say_ml(en=en, hi=hi, fr=fr, es=es, de=de)
+
+
+# --- Force-English speech (no fallback languages) ---
+def _say_en(line: str):
+    # Speak with English voice only (prevents Hindi/French voice reading English)
+    from utils import _speak_multilang
+    _speak_multilang(en=line)
+
+def _say_or_show_en(line: str):
+    # If GUI visible → show bubble + speak EN; else → speak EN only
+    from say_show import say_show
+    if _is_gui_visible():
+        # show English bubble; speak English
+        try:
+            say_show(line, title="Nova")
+        except Exception:
+            pass
+        _say_en(line)
+    else:
+        _say_en(line)
+
 # -------------------------------
 # Global config / paths
 # -------------------------------
@@ -427,12 +493,13 @@ def _load_dataset_if_needed():
     _BY_SYMBOL = {e.get("symbol", "").lower(): e for e in _ELEMENTS if e.get("symbol")}
     _BY_NAME   = {e.get("name",   "").lower(): e for e in _ELEMENTS if e.get("name")}
 
+
     _CATEGORIES_LOWER = {}
     for e in _ELEMENTS:
         cat = (e.get("category") or "").lower().strip()
         if cat:
-            _CATEGORIES_LOER = _CATEGORIES_LOWER.setdefault(cat, [])
-            _CATEGORIES_LOER.append(e)
+            _CATEGORIES_LOWER.setdefault(cat, []).append(e)
+
 
             
 # -------------------------------
@@ -570,7 +637,7 @@ def normalize_property(text: str) -> Optional[str]:
             return v
     if re.search(r"\batomic\s+number\b|\bZ\b", t):
         return "number"
-    if "electron configuration" in t or "configuration" in t:
+    if re.search(r"\belectron\s+configuration\b", t):
         return "electron_configuration_semantic"
     return None
 
@@ -835,7 +902,8 @@ def answer_list(title: str, items: List[Dict[str, Any]], limit: int = 12) -> Tup
     head = "Symbol  |  Name  |  Z  |  State"
     rows = []
     for e in items[:limit]:
-        rows.append(f"{e.get('symbol'):>2}  |  {e.get('name'):12}  |  {str(e.get('number')).rjust(2)}  |  {e.get('phase','—')}")
+        z = e.get("number")
+        rows.append(f"{e.get('symbol'):>2}  |  {e.get('name'):12}  |  {str(z or '—').rjust(2)}  |  {e.get('phase','—')}")
     if len(items) > limit:
         rows.append(f"... and {len(items)-limit} more")
     short = f"{title}: {', '.join([e.get('symbol') for e in items[:6]])}" + ("…" if len(items) > 6 else "")
@@ -1337,7 +1405,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
             e = _pick_extreme(prop_key, how)
             if not e:
                 if concise:
-                    say_ml(en="I couldn’t find that in the periodic table.")
+                    _say_or_show_en("I couldn’t find that in the periodic table.")
                     return "I couldn’t find that in the periodic table."
                 # verbose fallback: small GUI message (no actions)
                 gui = _format_gui_block(
@@ -1382,7 +1450,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
                 value_bit = _fmt_num(out_val)
                 unit_part = f" ({value_bit} {unit})" if unit else f" ({value_bit})"
                 line = f"{name} is the {qualifier} element because it has the {comp_word} {label_en}{unit_part}."
-                say_ml(en=line)
+                _say_or_show_en(line)
                 return line
 
             # 🪟 Verbose GUI (generic facts: no ✦ + no chips)
@@ -1426,7 +1494,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
             # ✅ Even in concise mode, show in Solution popup + speak
             if concise:
                 en = f"The {speech_label.lower()} of {formula} is {_fmt_num(M_r)} g/mol."
-                say_ml(en=en)
+                _say_or_show_en(en)
 
                 gui = _format_gui_block(
                     question=command,
@@ -1521,7 +1589,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
                 # ✅ Concise → speak + Solution popup (with chips)
                 if concise:
                     en = f"{_fmt_num(grams)} g {formula} is about {_fmt_num(n)} mol."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
 
                     gui = _format_gui_block(
                         question=command,
@@ -1595,7 +1663,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
                 # ✅ Concise → speak + Solution popup (with chips)
                 if concise:
                     en = f"{_fmt_num(moles)} mol {formula} is about {_fmt_num(g)} g."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
 
                     gui = _format_gui_block(
                         question=command,
@@ -1832,7 +1900,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
                 # ✅ Concise → speak + Solution popup (with chips)
                 if concise:
                     en = f"Boyle: P2={_fmt_sig(res['p2'], sig)} {base_pu}, V2={_fmt_sig(res['v2'], sig)} {base_vu}."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
 
                     gui = _format_gui_block(
                         question=command,
@@ -1911,7 +1979,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
                 # ✅ Concise → speak + Solution popup (with chips)
                 if concise:
                     en = f"Charles: V2={_fmt_sig(res['v2'], sig)} {kv['_vunit']}, T2={_fmt_sig(res['T2'], sig)} K."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
 
                     gui = _format_gui_block(
                         question=command,
@@ -2001,7 +2069,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
                 # ✅ Concise → speak + Solution popup (with chips)
                 if concise:
                     en = f"PV=nRT: p={_fmt_sig(res['p'], sig)} {base_pu}, v={_fmt_sig(res['v'], sig)} {base_vu}, n={_fmt_sig(res['n'], sig)} mol, T={_fmt_sig(res['T'], sig)} K (R={R_val} {R_lab})."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
 
                     gui = _format_gui_block(
                         question=command,
@@ -2093,7 +2161,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
             vol_val, vol_unit = None, None
 
             mL = re.search(r"(\d+\.?\d*)\s*mL\b", user_text, re.I)
-            Lq = re.search(r"(\d+\.?\d*)\s*L\b", user_text)
+            Lq = re.search(r"(\d+\.?\d*)\s*L\b", user_text, re.I)
             m3 = re.search(r"(\d+\.?\d*)\s*m\^?3\b", user_text, re.I)
 
             if Lq:
@@ -2123,7 +2191,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
 
                 if concise:
                     en = f"Molarity is about {_fmt_num(M)} mol/L."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
 
                     gui = _format_gui_block(
                         question=command,
@@ -2176,7 +2244,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
 
                 if concise:
                     en = f"Molarity is about {_fmt_num(M)} mol/L."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
 
                     gui = _format_gui_block(
                         question=command,
@@ -2232,7 +2300,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
 
                 if concise:
                     en = f"Molarity is about {_fmt_num(M)} mol/L."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
 
                     gui = _format_gui_block(
                         question=command,
@@ -2367,7 +2435,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
 
                 if concise:
                     en = f"Molality is about {_fmt_num(m_molality)} mol/kg."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
 
                     gui = _format_gui_block(
                         question=command,
@@ -2412,7 +2480,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
 
                 if concise:
                     en = f"Molality is about {_fmt_num(m_molality)} mol/kg."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
 
                     gui = _format_gui_block(
                         question=command,
@@ -2474,7 +2542,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
 
                 if concise:
                     en = f"Molality is about {_fmt_num(m_molality)} mol/kg."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
 
                     gui = _format_gui_block(
                         question=command,
@@ -2582,7 +2650,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
 
                 if concise:
                     en = f"Molarity is about {_fmt_num(M_val)} mol/L."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
 
                     gui = _format_gui_block(
                         question=command,
@@ -2624,7 +2692,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
 
                 if concise:
                     en = f"Molality is about {_fmt_num(m_val)} mol/kg."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
 
                     gui = _format_gui_block(
                         question=command,
@@ -2711,7 +2779,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
             # ✅ Concise → speak + Solution popup (with chips)
             if concise:
                 en = f"Final concentration ≈ {_fmt_num(M_final)} mol/L."
-                say_ml(en=en)
+                _say_or_show_en(en)
 
                 gui = _format_gui_block(
                     question=command,
@@ -2893,10 +2961,10 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
             if concise:
                 if u_is_M:
                     en = f"M{u_idx} ≈ {_fmt_num(solved_val)} mol/L."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
                 else:
                     en = f"V{u_idx} ≈ {_fmt_num(solved_val)} L."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
 
                 gui = _format_gui_block(
                     question=command,
@@ -3080,7 +3148,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
                 # ✅ Concise → speak + Solution popup (with chips)
                 if concise:
                     en = f"pH is about {_fmt_ab(out['pH'])}."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
 
                     gui = _format_gui_block(
                         question=command,
@@ -3131,7 +3199,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
                 # ✅ Concise → speak + Solution popup (with chips)
                 if concise:
                     en = f"pH is about {_fmt_ab(out['pH'])}."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
 
                     gui = _format_gui_block(
                         question=command,
@@ -3364,7 +3432,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
                     mol_formula = _fmt_formula(mol_parts)
 
                     en = f"Empirical = {emp_formula}; Molecular = {mol_formula}."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
 
                     gui = _format_gui_block(
                         question=command,
@@ -3381,7 +3449,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
                     return gui
                 else:
                     en = f"Empirical = {emp_formula}."
-                    say_ml(en=en)
+                    _say_or_show_en(en)
 
                     gui = _format_gui_block(
                         question=command,
@@ -3675,7 +3743,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
             # ================== concise mode ==================
             if concise:
                 en = f"Limiting reagent: {limiting}; theoretical yield ≈ {_fmt_num(m_prod)} g {target_product}."
-                say_ml(en=en)
+                _say_or_show_en(en)
 
                 gui = _format_gui_block(
                     question=command,
@@ -4168,7 +4236,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
                 num = _fmt_num(val)
                 label_en = PROP_I18N.get(prop, {}).get("en", prop)
                 line = f"{_short(target)} {label_en}: {num}" + (f" {unit}" if unit else "") + "."
-                say_ml(en=line)
+                _say_or_show_en(line)
                 return line
 
             # ---------- Dynamic follow-ups (PROPERTY path) ----------
@@ -4262,7 +4330,7 @@ def handle_chemistry_query(command: str, ctx: Optional[Dict[str, Any]] = None) -
         if concise:
             # Voice-only (no actions)
             line = f"{target.get('name')} (#{target.get('number')}, {target.get('symbol')})."
-            say_ml(en=line)
+            _say_or_show_en(line)
             return line
 
         # Dynamic follow-ups (OVERVIEW path)

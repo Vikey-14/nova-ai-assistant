@@ -25,6 +25,25 @@ def get_utils():
     from utils import _speak_multilang, logger, gui_callback
     return _speak_multilang, logger, gui_callback
 
+
+# 🎤 Preface line for direct Plot requests (multilingual, per GUI language)
+def _preface_plot_direct():
+    """Multilingual preface for direct graph requests."""
+    try:
+        from say_show import say_show
+        say_show(
+            "I solved it — showing the graph.",
+            hi="मैंने हल कर लिया — ग्राफ दिखा रही हूँ।",
+            de="Ich habe es gelöst — zeige das Diagramm.",
+            fr="J’ai résolu — j’affiche le graphique.",
+            es="Lo resolví — mostrando el gráfico.",
+            title="Nova",
+        )
+    except Exception:
+        # Never block the graph modal on TTS/UI hiccups
+        pass
+
+
 # 🔎 Friendly “Saved” line for the popup (filename + short path like ~/Music)
 def _format_saved_for_gui(path: str) -> str:
     try:
@@ -742,11 +761,16 @@ def handle_plotting(command: str):
                         x_sorted, y_sorted,
                         x_label=x_label, y_label=y_label, series_label=series_label
                     )
+
+                    # 🔊 SAY (multilingual) → then SHOW the plot modal
+                    _preface_plot_direct()
+
                     saved_path = open_graph_preview(
                         fig, callbacks,
                         title_text=title_text,
                         suggested_name=suggested_name
                     )
+
                 except Exception:
                     # Fallback: headless/GUI error → auto-save
                     out = os.path.join(graphs_dir(), f"{suggested_name}_{int(datetime.now().timestamp())}.png")
@@ -758,8 +782,9 @@ def handle_plotting(command: str):
                     saved_path = out
 
                 if saved_path:
+                    _speak_multilang("Graph saved.", log_command="graph_saved")  # ✅ SAY first
                     announce_saved_graph(saved_path)
-                    gui_callback("plot", _format_saved_for_gui(saved_path))
+                    gui_callback("plot", _format_saved_for_gui(saved_path))       # ✅ SHOW after
                     logger.info(f"📁 Graph saved to {saved_path}")
                     return saved_path
                 else:
@@ -860,11 +885,16 @@ def handle_plotting(command: str):
                 y_label=y_label,
                 series_label=series_label
             )
+
+            # 🔊 SAY (multilingual) → then SHOW the plot modal
+            _preface_plot_direct()
+
             saved_path = open_graph_preview(
                 fig, callbacks,
                 title_text=title_text,
                 suggested_name=suggested_name
             )
+
         except Exception:
             # Fallback: headless/GUI error → auto-save
             out = os.path.join(graphs_dir(), f"{suggested_name}_{int(datetime.now().timestamp())}.png")
@@ -876,8 +906,9 @@ def handle_plotting(command: str):
             saved_path = out
 
         if saved_path:
+            _speak_multilang("Graph saved.", log_command="graph_saved")  # ✅ SAY first
             announce_saved_graph(saved_path)
-            gui_callback("plot", _format_saved_for_gui(saved_path))
+            gui_callback("plot", _format_saved_for_gui(saved_path))       # ✅ SHOW after
             logger.info(f"📁 Graph saved to {saved_path}")
             return saved_path
         else:
@@ -886,7 +917,6 @@ def handle_plotting(command: str):
 
     except Exception as e:
         _speak_multilang, logger, gui_callback = get_utils()
-        gui_callback("plot", f"❌ Could not plot the expression.\nError: {str(e)}")
         _speak_multilang(
             "I couldn't graph that equation. Please check it and try again.",
             hi="मैं उस समीकरण का ग्राफ नहीं बना सकी। कृपया जांचें और फिर से प्रयास करें।",
@@ -895,6 +925,7 @@ def handle_plotting(command: str):
             de="Ich konnte diese Gleichung nicht darstellen. Bitte überprüfe sie und versuche es erneut.",
             log_command="Graphing failed"
         )
+        gui_callback("plot", f"❌ Could not plot the expression.\nError: {str(e)}")
         logger.error(f"❌ Plotting failed: {e}")
         return None
 

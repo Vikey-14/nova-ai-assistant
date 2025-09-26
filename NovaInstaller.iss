@@ -22,6 +22,9 @@ ArchitecturesInstallIn64BitMode=x64
 
 ; Require elevation for Program Files + registry writes
 PrivilegesRequired=admin
+DisableDirPage=yes
+DisableProgramGroupPage=yes
+WizardStyle=modern
 
 ; Core metadata
 AppId={{B2F2778E-7A66-4F3C-8F6B-3E3B9F3A0F00}}
@@ -30,33 +33,31 @@ AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 
-; Use the crisp app icon for the installer/uninstaller UI
+; Icons
 SetupIconFile=assets\nova_icon_big.ico
+UninstallDisplayIcon={app}\Nova\Nova.exe
 
 ; Install path
-; NOTE: If you already shipped versions that installed to {pf64}\NOVA,
-; keeping the same AppId means upgrades will default to the OLD dir.
-; Change here to {pf64}\Nova for fresh installs; upgrades will still
-; stick to the existing dir automatically.
 DefaultDirName={pf64}\Nova
 DefaultGroupName=Nova
-
-; Uninstaller icon in Apps & Features
-UninstallDisplayIcon={app}\Nova\Nova.exe
 
 ; Output
 OutputDir=dist\installer
 OutputBaseFilename=NovaSetup
 Compression=lzma
 SolidCompression=yes
-WizardStyle=modern
 
-; Simple, no custom dir/group pages
-DisableDirPage=yes
-DisableProgramGroupPage=yes
+; Make upgrades smoother
+CloseApplications=force
+RestartApplications=false
+UsePreviousAppDir=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
+
+[Dirs]
+; Ensure our subfolder exists
+Name: "{app}\Nova"
 
 [Files]
 ; Install the portable PyInstaller folder under {app}\Nova
@@ -74,6 +75,16 @@ Name: "{autodesktop}\Nova";       Filename: "{app}\Nova\Nova.exe"
 ; Auto-start Nova Tray at user login (per-user)
 ; Extra quotes ensure correct path with the space in "Nova Tray.exe"
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Nova Tray"; ValueData: """{app}\Nova\Nova Tray.exe"""; Flags: uninsdeletevalue
+
+[InstallDelete]
+; Belt-and-suspenders: remove any leftover per-user data BEFORE installing
+Type: filesandordirs; Name: "{localappdata}\Nova"
+Type: filesandordirs; Name: "{userappdata}\Nova"
+
+[UninstallDelete]
+; Wipe ALL per-user data on uninstall so a reinstall is a clean first-boot
+Type: filesandordirs; Name: "{localappdata}\Nova"
+Type: filesandordirs; Name: "{userappdata}\Nova"
 
 [Run]
 ; Start the tray immediately so the taskbar icon is visible right after install.

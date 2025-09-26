@@ -9,6 +9,12 @@
 .python-version
 hashed.txt
 
+# Local app settings (may contain relay tokens)
+settings.json
+settings.*.json
+*.secrets.json
+*.private.json
+
 # 🐍 Python caches / packaging
 __pycache__/
 *.py[cod]
@@ -96,17 +102,31 @@ desktop.ini
 __MACOSX/
 
 # 🔊 App logs & caches
+logs/**
 *.log
 nova_logs.txt
 interaction_log.txt
 interaction_log.csv
-logs/
+.nova_logs/**
 
-# 🧪 Tests (project-specific)
-.nova_logs/
+# 🗣️ Offline ASR models (huge / per-user installs)
+vosk_models/**
+!vosk_models/README.md
+!vosk_models/*.md
 
 # 🗃 Runtime data/state
-# (Do NOT ignore /data — repo contains real runtime data you keep)
+# Keep curated data files; ignore local/runtime bits
+data/build_id.txt
+data/notes.json
+data/*.db
+data/*.sqlite
+data/*.sqlite3
+data/*.cache
+data/.cache/
+
+# Keep these project data files tracked:
+!data/chemistry_table.json
+!data/curiosity_data.json
 
 # 📓 Project-specific generated files (legacy)
 notes/
@@ -174,3 +194,6 @@ third_party/piper/**
 !third_party/piper/models/
 !third_party/piper/models/en_US-ryan-medium.onnx
 !third_party/piper/models/en_US-ryan-medium.onnx.json
+
+# never bundle test memory
+data/memory.json

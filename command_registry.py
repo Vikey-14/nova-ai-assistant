@@ -220,6 +220,9 @@ COMMAND_REGISTRY.append((is_pokemon_command, handle_pokemon_command))
 # ────────────────────────────────────────────────────────────────
 def is_open_youtube(command: str) -> bool:
     cmd = (command or "").lower()
+    # 🚫 Short-circuit so "open youtube and play ..." routes to play_music
+    if "and play" in cmd:
+        return False
     kws = COMMAND_MAP.get("open_youtube", [])
     return any(kw in cmd for kw in kws) or fuzzy_in(cmd, kws)
 COMMAND_REGISTRY.append((is_open_youtube, handle_open_youtube))
@@ -296,10 +299,10 @@ def is_wikipedia_query(command: str) -> bool:
 COMMAND_REGISTRY.append((is_wikipedia_query, handle_wikipedia))
 
 # ────────────────────────────────────────────────────────────────
-# 🖥️ System (shutdown, brightness, exit, etc.)
-#   KEEP STRICT (no fuzzy) to avoid accidental destructive actions
+# 🖥️ System (SPLIT: strict power/exit vs fuzzy volume/brightness)
 # ────────────────────────────────────────────────────────────────
-def is_system_command(command: str) -> bool:
+def is_power_or_exit(command: str) -> bool:
+    """STRICT: no fuzzy; avoids accidental destructive actions."""
     cmd = (command or "").lower()
     keywords = (
         COMMAND_MAP.get("shutdown_system", []) +
@@ -307,12 +310,19 @@ def is_system_command(command: str) -> bool:
         COMMAND_MAP.get("sleep_system", []) +
         COMMAND_MAP.get("lock_system", []) +
         COMMAND_MAP.get("logout_system", []) +
-        COMMAND_MAP.get("adjust_volume", []) +
-        COMMAND_MAP.get("adjust_brightness", []) +
         COMMAND_MAP.get("exit_app", [])
     )
     return any(kw in cmd for kw in keywords)
-COMMAND_REGISTRY.append((is_system_command, handle_system_commands))
+
+def is_volume_or_brightness(command: str) -> bool:
+    """FUZZY: allow typos for safe adjustments."""
+    cmd = (command or "").lower()
+    kws = COMMAND_MAP.get("adjust_volume", []) + COMMAND_MAP.get("adjust_brightness", [])
+    return any(kw in cmd for kw in kws) or fuzzy_in(cmd, kws, cutoff=0.72, compact_cutoff=0.90)
+
+# Order matters: strict first, then fuzzy V/B
+COMMAND_REGISTRY.append((is_power_or_exit, handle_system_commands))
+COMMAND_REGISTRY.append((is_volume_or_brightness, handle_system_commands))
 
 # ────────────────────────────────────────────────────────────────
 # 🧠 Symbolic Math (Derivatives, Integrals, Limits, Equations, Matrix Ops)
@@ -464,7 +474,7 @@ KEY_TO_HANDLER = {
     "math_query": handle_basic_math,
     "physics_query": handle_physics_question,
     "chemistry_query": handle_chemistry_query,
-    "chemistry_fact": handle_chemistry_query,   # ← add this line
+    "chemistry_fact": handle_chemistry_query,   # ← keep this
 
     # If you want: memory ops can be added too; generally safe:
     "remember_name": handle_remember_name,

@@ -25,8 +25,6 @@ def add_dir_files(root_dir, target_prefix, allow_ext=None):
     return pairs
 
 def add_broken_zip_assets(target_prefix="assets"):
-    """Guard in case assets were unzipped wrong (files like 'assets\\...'
-    landed in repo root)."""
     pairs = []
     for p in BASE.iterdir():
         if p.is_file() and p.name.startswith("assets\\"):
@@ -72,10 +70,22 @@ hidden += [
     "encodings", "codecs", "zlib", "bz2", "lzma", "unicodedata",
 ]
 hidden += collect_submodules("encodings")
+
+# NEW: ASR/VAD engines
+try:
+    hidden += collect_submodules("vosk")
+except Exception:
+    pass
+try:
+    hidden += collect_submodules("webrtcvad")
+except Exception:
+    pass
+
 try:
     hidden += collect_submodules("edge_tts")
 except Exception:
     pass
+
 hidden += ["PIL._tkinter_finder", "PIL.ImageTk", "PIL._imagingtk"]
 
 # GTK/AppIndicator GI backends for pystray on Linux
@@ -126,13 +136,16 @@ for mod in ("matplotlib", "dateparser", "dateparser_data", "certifi"):
     except Exception:
         pass
 
-# Piper (offline) — manifest, models, *both* Linux arch bins
+# Piper (offline) — manifest, models, both Linux arch bins
 man = BASE / "third_party/piper/models_manifest.json"
 if man.is_file():
     datas.append((str(man), "third_party/piper"))
 datas += add_dir_files("third_party/piper/models",      "third_party/piper/models")
 datas += add_dir_files("third_party/piper/linux-x64",   "third_party/piper/linux-x64")
 datas += add_dir_files("third_party/piper/linux-arm64", "third_party/piper/linux-arm64")
+
+# NEW: ship Vosk models directory
+datas += add_dir_files("vosk_models", "vosk_models")
 
 # stdlib encodings as a Tree so they’re available in MEIPASS
 ENC_DIR = str(Path(_enc.__file__).parent)
@@ -166,7 +179,7 @@ exe1 = EXE(
     a1.scripts,
     a1.binaries,
     a1.zipfiles,
-    a1.datas + enc_tree,   # include encodings into the EXE
+    a1.datas + enc_tree,
     [],
     name="Nova",
     debug=False,

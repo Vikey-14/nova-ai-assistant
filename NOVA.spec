@@ -23,7 +23,7 @@ BASE = _resolve_base()
 # Hidden imports (dynamic deps)
 # -----------------------------
 hiddenimports = [
-    # TTS / audio / NLP stack
+    # TTS / audio / NLP
     *collect_submodules('pyttsx3'),
     *collect_submodules('pygame'),
     'speech_recognition',
@@ -40,56 +40,13 @@ hiddenimports = [
     'tkinter',
     'PIL._tkinter_finder',
     'matplotlib.backends.backend_tkagg',
-]
 
-# ✅ Hard-pin SAPI5 + COM glue (explicit, prevents lazy-import misses)
-hiddenimports += [
+    # SAPI5 / COM
     'pyttsx3.drivers',
     'pyttsx3.drivers.sapi5',
     'win32com.client',
-]
 
-# Ensure dynamically imported weather handler is frozen
-hiddenimports += ['handlers.weather_commands']
-
-# Windows audio/COM helpers
-hiddenimports += [
-    *collect_submodules('comtypes'),
-    'pythoncom',
-    'pywintypes',
-]
-
-# utils.py import-time deps (bundle so runtime has them)
-hiddenimports += [
-    'wmi',
-    'win32com', 'win32com.client', 'win32com.server',
-    'pycaw', 'pycaw.pycaw',
-    'gtts',
-    'playsound',
-]
-
-# Tray’s stricter window/process detection
-hiddenimports += ['psutil']
-
-# Optional vendor TTS stacks (only if installed)
-for opt_pkg in [
-    'boto3', 'botocore',
-    'azure.cognitiveservices.speech',
-    'google.cloud.texttospeech',
-]:
-    try:
-        hiddenimports += collect_submodules(opt_pkg)
-    except Exception:
-        pass
-
-# Optional: include edge-tts if present (harmless if absent)
-try:
-    hiddenimports += collect_submodules('edge_tts')
-except Exception:
-    pass
-
-# Your local project modules (leave out 'utils'; runtime hook pins local utils.py)
-hiddenimports += [
+    # Project modules
     'gui_interface',
     'core_engine',
     'memory_handler',
@@ -99,39 +56,48 @@ hiddenimports += [
     'handlers.memory_commands',
 ]
 
-# Include all handlers.* submodules automatically (covers chemistry_solver, etc.)
+# Include all handlers.* automatically
 try:
     hiddenimports += collect_submodules('handlers')
 except Exception:
     pass
 
+# Windows audio/COM helpers
+hiddenimports += [
+    *collect_submodules('comtypes'),
+    'pythoncom',
+    'pywintypes',
+]
+
+# Optional stacks (safe if missing)
+for opt_pkg in [
+    'boto3', 'botocore',
+    'azure.cognitiveservices.speech',
+    'google.cloud.texttospeech',
+    'edge_tts',
+]:
+    try:
+        hiddenimports += collect_submodules(opt_pkg)
+    except Exception:
+        pass
+
+# === NEW: ASR/VAD hidden imports ===
+try:
+    hiddenimports += collect_submodules('vosk')
+except Exception:
+    pass
+
+try:
+    # webrtcvad is a small C-extension; no submodules, but this keeps PyInstaller honest
+    hiddenimports += collect_submodules('webrtcvad')
+except Exception:
+    pass
+
 # -----------------------------
-# Data files for Analysis (tuples only)
+# Data files
 # -----------------------------
 datas = []
 
-# Library datasets
-try:
-    datas += collect_data_files('dateparser', include_py_files=True)
-except Exception:
-    pass
-try:
-    datas += collect_data_files('dateparser_data', include_py_files=True)
-except Exception:
-    pass
-try:
-    datas += collect_data_files('langdetect')
-except Exception:
-    pass
-
-# Certifi CA bundle (HTTPS)
-try:
-    datas += collect_data_files('certifi')
-    hiddenimports.append('certifi')
-except Exception:
-    pass
-
-# Helpers
 def _abs(p: str) -> Path:
     pth = Path(p)
     return pth if pth.is_absolute() else (BASE / pth)
@@ -157,7 +123,14 @@ def add_dir_nonpy(root: str, prefix: str):
                 dest_dir = prefix
             datas.append((str(src), dest_dir))
 
-# Top-level files commonly referenced at runtime
+# Library datasets
+for lib in ('dateparser', 'dateparser_data', 'langdetect', 'certifi'):
+    try:
+        datas += collect_data_files(lib, include_py_files=(lib != 'langdetect'))
+    except Exception:
+        pass
+
+# Top-level files referenced at runtime
 for fname in [
     'settings.json',
     'chemistry_table.json',
@@ -165,44 +138,41 @@ for fname in [
     'poem_bank.json',
     'nova_icon.ico',
     'nova_icon_big.ico',
-    'nova_logs.txt',
-    'hashed.txt',                # ← ADDED: include hashed list at app root
 ]:
     add_file_if_exists(fname, '.')
 
-# Ensure local utils.py is present for the runtime hook to pin
+# Ensure local utils.py is present for runtime hook pinning
 add_file_if_exists('utils.py', '.')
 
-# Explicit include for blocklist and then whole data/ (harmless if you later delete the file)
+# Optional name list and entire data dir
 add_file_if_exists('data/name_blocklist_en.txt', 'data')
-
-# Catch-all for any other root-level JSONs
-try:
-    for fname in os.listdir(BASE):
-        if str(fname).lower().endswith('.json'):
-            add_file_if_exists(str(BASE / fname), '.')
-except Exception:
-    pass
-
-# Include all non-.py content from handlers/ and data/
 add_dir_nonpy('handlers', 'handlers')
-add_dir_nonpy('data', 'data')
-
-# Include assets (icons, images used by tray tip, etc.)
+add_dir_nonpy('data', 'data')          # includes build_id.txt etc.
 add_dir_nonpy('assets', 'assets')
 
-# >>> Piper offline voices (Windows) — bundle manifest, models, and the win binary
+# 🔒 FORCE-INCLUDE hashed blocklist (no matter what)
+if (BASE / 'data' / 'hashed.txt').is_file():
+    datas.append((str(BASE / 'data' / 'hashed.txt'), 'data'))
+elif (BASE / 'hashed.txt').is_file():
+    datas.append((str(BASE / 'hashed.txt'), '.'))
+
+# Piper (optional; include if present)
 add_file_if_exists('third_party/piper/models_manifest.json', 'third_party/piper')
 add_dir_nonpy('third_party/piper/models',       'third_party/piper/models')
 add_dir_nonpy('third_party/piper/windows-x64',  'third_party/piper/windows-x64')
-# (If your win bundle includes espeak-ng-data under windows-x64, it will be picked up by the line above)
 
-# Optional hooks folder (Windows-only hooks live in hooks_win/)
+# === NEW: bundle ffmpeg folder (so ffplay is available) ===
+# Your repo has ffmpeg\bin\*.exe – include whole folder.
+add_dir_nonpy('ffmpeg', 'ffmpeg')
+
+# === NEW: bundle Vosk models folder ===
+# You downloaded models to vosk_models/<lang>/model — ship that.
+add_dir_nonpy('vosk_models', 'vosk_models')
+
+# Optional hooks folder
 hookspaths = [str(BASE / 'hooks_win')] if (BASE / 'hooks_win').is_dir() else []
 
-# =========================================================
-# ==============  MAIN APP: Nova.exe  =====================
-# =========================================================
+# ============== MAIN APP ==============
 a_main = Analysis(
     [str(BASE / 'main.py')],
     pathex=[str(BASE)],
@@ -229,24 +199,16 @@ exe_main = EXE(
     a_main.scripts,
     [],
     exclude_binaries=True,
-    name='Nova',                               # was 'NOVA'
+    name='Nova',
     debug=False,
-    bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     console=False,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
     icon=str(BASE / 'nova_icon_big.ico'),
-    version=str(BASE / 'version_info_main.txt'),  # embed display name/version
+    version=str(BASE / 'version_info_main.txt'),
 )
 
-# =========================================================
-# ==============  TRAY APP: Nova Tray.exe  ================
-# =========================================================
+# ============== TRAY APP ==============
 a_tray = Analysis(
     [str(BASE / 'tray_app.py')],
     pathex=[str(BASE)],
@@ -257,7 +219,6 @@ a_tray = Analysis(
     hooksconfig={},
     runtime_hooks=[
         str(BASE / 'hooks_win' / 'rthook_force_local_utils.py'),
-        # Tray doesn't need Matplotlib quiet hook
     ] if (BASE / 'hooks_win').is_dir() else [],
     excludes=[],
     win_no_prefer_redirects=False,
@@ -275,22 +236,15 @@ exe_tray = EXE(
     exclude_binaries=True,
     name='Nova Tray',
     debug=False,
-    bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     console=False,
-    disable_windowed_traceback=False,
-    argv_emulation=False,
-    target_arch=None,
-    codesign_identity=None,
-    entitlements_file=None,
     icon=str(BASE / 'nova_icon_big.ico'),
-    version=str(BASE / 'version_info_tray.txt'),  # embed display name/version
+    version=str(BASE / 'version_info_tray.txt'),
 )
 
 collect_args = [
-    exe_main,
-    exe_tray,
+    exe_main, exe_tray,
     a_main.binaries, a_main.zipfiles, a_main.datas,
     a_tray.binaries, a_tray.zipfiles, a_tray.datas,
 ]
@@ -305,5 +259,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='Nova',          # dist\Nova\...
+    name='Nova',     # dist\Nova\...
 )

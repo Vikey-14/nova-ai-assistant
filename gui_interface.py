@@ -1,21 +1,43 @@
-# gui_interface.py — Nova main UI
-# (starry background + smoother logo + never-under-taskbar + mic click-to-talk)
-# + ghost scrollbar (hidden until edge-hover) + no-flicker reveal
-# Echo YOU first: Send prints the user's line immediately, clears the box,
-# then dispatches work on a background thread (or external_callback).
-
 from __future__ import annotations
 
 import tkinter as tk
 from tkinter import filedialog, messagebox
 from tkinter import font as tkfont
-from PIL import Image, ImageTk  # ← needed for starfield + logo images
+from PIL import Image, ImageTk
 import os, sys, math, time, ctypes, threading, subprocess, shutil
-import re, webbrowser  # ← URL detection + open-in-browser
+import re, webbrowser
+from say_show import say_show
 
 # --- Nova interaction gating (don't speak while language flow or TTS is busy) ---
 import utils
 from utils import LANGUAGE_FLOW_ACTIVE
+
+
+def _multilang(**kw):
+    """
+    Usage: _multilang(en="...", hi="...", fr="...", de="...", es="...")
+    Chooses a string by the current UI language; falls back to English/first provided.
+    """
+    try:
+        # Try the live GUI language
+        g = gui_if_ready()
+        lang = (getattr(g, "language", "en") or "en").split("-")[0].lower()
+    except Exception:
+        # Fallback to utils' selected_language
+        try:
+            lang = (utils.selected_language or "en").split("-")[0].lower()
+        except Exception:
+            lang = "en"
+
+    if lang in kw and kw[lang]:
+        return kw[lang]
+    if "en" in kw and kw["en"]:
+        return kw["en"]
+    for v in kw.values():
+        if v:
+            return v
+    return ""
+
 
 def _interaction_gate_open() -> bool:
     try:
@@ -25,16 +47,12 @@ def _interaction_gate_open() -> bool:
         is_tts_busy = False
     return (not LANGUAGE_FLOW_ACTIVE) and (not is_tts_busy)
 
-
-# ✅ Single source of truth for app resources / callbacks
 from utils import resource_path, set_gui_callback
 
-# Detect WSL (so we can apply safer geometry)
 IS_WSL = bool(os.environ.get("WSL_DISTRO_NAME"))
 IS_LINUX = sys.platform.startswith("linux")
-IS_LINUX_OR_WSL = IS_LINUX or IS_WSL  # ← used to keep changes Linux-only
+IS_LINUX_OR_WSL = IS_LINUX or IS_WSL
 
-# ✅ Reuse the exact starfield used by your graph preview
 try:
     from handlers.nova_graph_ui import make_starry_bg, BG as STAR_BG
 except Exception:
@@ -43,13 +61,11 @@ except Exception:
         img = Image.new("RGB", (w, h), STAR_BG)
         return ImageTk.PhotoImage(img)
 
-# 🌈 Language → glow color
 LANG_GLOW_COLORS = {
     "en": "#00ffcc", "hi": "#ff9933", "fr": "#3399ff",
     "de": "#66cc66", "es": "#ff6666",
 }
 
-# 🌐 Tooltip translations
 TIP_TEXTS = {
     "en": {
         "math":      "Enable this to type math directly. Like: integrate(x^2, x)",
@@ -83,10 +99,8 @@ TIP_TEXTS = {
     },
 }
 
-
-# ---------- Windows work-area helpers (per-monitor; excludes taskbar) ----------
+# ---------- Windows work-area helpers ----------
 def _win_work_area_for_window(hwnd) -> tuple[int,int,int,int] | None:
-    """Return (L,T,R,B) of the *work area* for the monitor where hwnd is, or None."""
     try:
         from ctypes import wintypes
         user32 = ctypes.windll.user32
@@ -126,36 +140,27 @@ def _windows_work_area_for_root(root) -> tuple[int,int,int,int] | None:
         return None
 
 def position_main_window(root, w=820, h=680, upward_bias=120, min_top=24, safe_bottom=120):
-    """
-    Center inside the current monitor's WORK AREA (excludes taskbar),
-    then nudge upward; finally clamp so bottom stays above the taskbar.
-    """
     root.update_idletasks()
-
     wa = _windows_work_area_for_root(root)
     if wa:
         l, t, r, b = wa
         sw, sh = (r - l), (b - t)
         x = l + max(0, (sw - w) // 2)
         y = t + max(min_top, (sh - h) // 2 - upward_bias)
-        # clamp so bottom is above taskbar by safe_bottom px
         y = min(y, b - h - safe_bottom)
         y = max(t + min_top, y)
         root.geometry(f"{w}x{h}+{x}+{y}")
         return
 
-    # Fallback (non-Windows): center with robust clamp to screen (no negative y)
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
     x = max(0, (sw - w) // 2)
     y_pref = (sh - h) // 2 - upward_bias
     y = max(min_top, y_pref)
-    # keep window fully on-screen; bigger bottom guard on Linux/WSL
     bottom_guard = 72 if IS_LINUX_OR_WSL else 12
     y = min(y, max(min_top, sh - h - bottom_guard))
     y = max(0, y)
     root.geometry(f"{w}x{h}+{x}+{y}")
 
-# ✅ precise upper-center placer with a second pass (never under taskbar)
 def _place_main_window_safely(root: tk.Tk, y_percent: float = 0.26, bottom_margin: int = 64, _second_pass: bool = False):
     try:
         root.update_idletasks()
@@ -168,7 +173,7 @@ def _place_main_window_safely(root: tk.Tk, y_percent: float = 0.26, bottom_margi
         work_w, work_h = (r - l), (b - t)
         x = l + (work_w - w) // 2
         y = t + int(work_h * y_percent)
-        y = max(t, min(y, b - bottom_margin - h))  # clamp
+        y = max(t, min(y, b - bottom_margin - h))
         root.geometry(f"+{x}+{y}")
         if not _second_pass:
             root.after(220, lambda: _place_main_window_safely(root, y_percent, bottom_margin, True))
@@ -178,16 +183,13 @@ def _place_main_window_safely(root: tk.Tk, y_percent: float = 0.26, bottom_margi
         w, h = root.winfo_width(), root.winfo_height()
         x = (sw - w) // 2
         y = max(0, (sh - h) // 2 - 120)
-        # ⬇️ use requested bottom_margin on Linux; small guard otherwise
         guard = bottom_margin if IS_LINUX_OR_WSL else 12
         y = min(y, max(0, sh - h - guard))
         root.geometry(f"+{x}+{y}")
         if not _second_pass:
             root.after(220, lambda: _place_main_window_safely(root, y_percent, bottom_margin, True))
 
-# ---------- Linux fit-to-screen (prevents bottom clipping) ----------
 def _fit_linux_size(root: tk.Tk, min_w=720, min_h=560, side_margin=12, top_margin=24, bottom_margin=72):
-    """Linux/WSL only: ensure window is tall enough for content but never under the bottom panel."""
     if not IS_LINUX_OR_WSL:
         return
     try:
@@ -201,7 +203,6 @@ def _fit_linux_size(root: tk.Tk, min_w=720, min_h=560, side_margin=12, top_margi
     except Exception:
         pass
 
-# --- Linux hard-center helpers (WSLg sometimes ignores first geometry) ---
 def _linux_center_now(root: tk.Tk, y_bias: int = 60, bottom_guard: int = 120):
     if not IS_LINUX_OR_WSL:
         return
@@ -222,13 +223,12 @@ def _linux_center_after_map(root: tk.Tk):
     root.after(200, lambda: _linux_center_now(root))
     root.after(700, lambda: _linux_center_now(root))
 
-
 class Tooltip:
     def __init__(self, widget, text='Tooltip', font_family=None, fg=None):
         self.widget = widget
         self.text = text or ""
         self.font_family = (font_family or "Consolas")
-        self.fg = fg or "white"   # ← language/glow-aware text color
+        self.fg = fg or "white"
         self.tip_window = None
         self._label = None
 
@@ -236,7 +236,6 @@ class Tooltip:
         widget.bind("<Leave>", self.hide_tooltip)
 
     def set_text(self, text: str):
-        """Update text immediately if visible (no flicker)."""
         self.text = text or ""
         if self._label and self._label.winfo_exists():
             try:
@@ -245,7 +244,6 @@ class Tooltip:
                 pass
 
     def set_font_family(self, family: str):
-        """Update font immediately if visible (no flicker)."""
         if not family:
             return
         self.font_family = family
@@ -256,7 +254,6 @@ class Tooltip:
                 pass
 
     def set_fg(self, color: str):
-        """Update foreground color immediately if visible (no flicker)."""
         if not color:
             return
         self.fg = color
@@ -299,8 +296,6 @@ class Tooltip:
             self.tip_window = None
             self._label = None
 
-
-# -----------------------------  Nova Solution popup -----------------------------
 POP_BG        = "#0f0f0f"
 POP_CARD_BG   = "#131313"
 POP_TEXT_FG   = "#e8e8e8"
@@ -427,7 +422,6 @@ class _SolutionPopup(tk.Toplevel):
         self.bind("<Command-c>", lambda e: self._copy_all())
     # (popup internals unchanged)
 
-# ✅ Tiny helper for logo sparkles (4-point star polygon)
 def _star_points(cx, cy, r_out, r_in, points=4, angle_offset=0.0):
     pts = []
     for k in range(points * 2):
@@ -436,57 +430,39 @@ def _star_points(cx, cy, r_out, r_in, points=4, angle_offset=0.0):
         pts.extend([cx + r * math.cos(ang), cy + r * math.sin(ang)])
     return pts
 
-# ----------------------------- Scrollbar -----------------------------
 class GhostScrollbar(tk.Canvas):
-    """
-    Starts hidden. Shows on edge-hover / wheel / arrow keys / drag.
-    Auto-hides after 7s of true inactivity (no flicker, no content reflow).
-    Fat ▲ ▼, chunky rectangular thumb (black fill + thin accent border), no glow.
-    """
-
-    # visuals / geometry
     BTN_H = 16
     PAD   = 0
     MIN_THUMB = 36
-    EDGE_SAFE = 1            # draw strokes 1px inside so they never clip
+    EDGE_SAFE = 1
     STROKE_W = 1
     TRI_INSET = 0
     TRI_FILL_SCALE = 1.0
 
-    # behavior
-    SHOW_SECS = 7.0          # visible for at least 7s of true inactivity
-    HOVER_ZONE_PX = 56       # pointer within this distance of the right edge counts as 'near'
-    POLL_MS = 200            # watchdog cadence (ms)
+    SHOW_SECS = 7.0
+    HOVER_ZONE_PX = 56
+    POLL_MS = 200
 
     def __init__(self, master, accent="#00ffcc", width=20, **kw):
         super().__init__(master, width=width, highlightthickness=0, bd=0, bg=STAR_BG, **kw)
         self.accent = accent
         self._text: tk.Text | None = None
         self._first, self._last = 0.0, 1.0
-
-        # state
-        self._drawn = False          # are graphics drawn? (widget always stays gridded)
+        self._drawn = False
         self._dragging = False
         self._drag_offset = 0
         self._scrollable = False
         self._hovering = False
-
-        # timers
         self._watchdog_id = None
         self._last_alive = time.monotonic()
         self._repeat_id = None
-
-        # canvas item ids
         self._btn_up = self._btn_dn = None
         self._btn_up_fill = self._btn_dn_fill = None
         self._thumb_border = None
         self._thumb_fill = None
-
-        # colors
         self._track_color = "#151515"
         self._fill_black  = "#000000"
 
-        # events
         self.bind("<Configure>", lambda e: self._redraw_if_drawn(), add="+")
         self.bind("<Enter>",     lambda e: (self._set_hover(True),  self._show_now()), add="+")
         self.bind("<Leave>",     lambda e: (self._set_hover(False), self._poke()), add="+")
@@ -495,28 +471,23 @@ class GhostScrollbar(tk.Canvas):
         self.bind("<ButtonRelease-1>", self._on_release, add="+")
         self.bind("<Motion>",    lambda e: (self._show_now(), self._poke()), add="+")
 
-        # boot: keep gutter but draw nothing (hidden)
         self.after_idle(self._clear_drawings)
 
-    # ---------- helpers ----------
     def _set_hover(self, v: bool): self._hovering = bool(v)
     def _poke(self): self._last_alive = time.monotonic()
 
     def _clear_drawings(self):
         self.delete("all")
         self._drawn = False
-        # paint the gutter to blend with the background (so it looks invisible)
         w = int(self.winfo_width()); h = int(self.winfo_height())
         if w > 0 and h > 0:
             self.create_rectangle(0, 0, w, h, fill=STAR_BG, outline="")
-        # do NOT grid_remove → prevents text reflow/flicker
 
     def _redraw_if_drawn(self):
         if self._drawn:
             self._redraw()
 
     def _sync_from_text(self, repaint=True):
-        """Force-refresh _first/_last from the Text and optionally redraw (thumb follows keys/wheel)."""
         if not self._text:
             return
         try:
@@ -527,7 +498,6 @@ class GhostScrollbar(tk.Canvas):
         except Exception:
             pass
 
-    # ---------- public API ----------
     def attach(self, text_widget: tk.Text):
         self._text = text_widget
         text_widget.configure(yscrollcommand=self.on_textscroll)
@@ -542,10 +512,8 @@ class GhostScrollbar(tk.Canvas):
             self._first, self._last = float(first), float(last)
         except Exception:
             self._first, self._last = 0.0, 1.0
-        # Show when there is scroll range; still OK to show briefly on any activity
         self._show_now() if (self._last - self._first) < 0.9999 else self._hide_now()
 
-    # ---------- geometry ----------
     def _track_area(self):
         w = int(self.winfo_width()); h = int(self.winfo_height())
         return (self.PAD, self.BTN_H, w - self.PAD, h - self.BTN_H)
@@ -563,7 +531,6 @@ class GhostScrollbar(tk.Canvas):
             B = (R,     h - self.BTN_H + self.EDGE_SAFE + inset)
             C = (L,     h - self.BTN_H + self.EDGE_SAFE + inset)
         return (*A, *B, *C)
-    
 
     def _thumb_rect(self):
         x0, y0, x1, y1 = self._track_area()
@@ -576,7 +543,6 @@ class GhostScrollbar(tk.Canvas):
             bot = min(y1, top + self.MIN_THUMB)
         return int(x0), int(top), int(x1), int(bot)
 
-    # ---------- drawing ----------
     def _draw_triangle_pair(self, top=True):
         fill_pts   = self._triangle_pts(top=top, inset=0)
         stroke_pts = self._triangle_pts(top=top, inset=self.EDGE_SAFE)
@@ -601,13 +567,10 @@ class GhostScrollbar(tk.Canvas):
         if w <= 2 or h <= 2:
             self._drawn = False
             return
-        # track & bg
         self.create_rectangle(0, 0, w, h, fill=STAR_BG, outline="")
         self.create_rectangle(2, 2, w-2, h-2, fill=self._track_color, outline="")
-        # triangles
         self._draw_triangle_pair(top=True)
         self._draw_triangle_pair(top=False)
-        # clicks on arrows (stroke + fill)
         for stroke, fill, dirn in (
             (self._btn_up, self._btn_up_fill, -1),
             (self._btn_dn, self._btn_dn_fill, +1),
@@ -616,7 +579,6 @@ class GhostScrollbar(tk.Canvas):
                 self.tag_bind(item, "<ButtonPress-1>",  lambda e, d=dirn: (self._press_button(d), self._poke()))
                 self.tag_bind(item, "<ButtonRelease-1>", self._stop_repeat)
                 self.tag_bind(item, "<Leave>",           self._stop_repeat)
-        # thumb
         tx0, ty0, tx1, ty1 = self._track_area()
         self._scrollable = (self._last - self._first) < 0.9999
         if self._scrollable:
@@ -629,10 +591,8 @@ class GhostScrollbar(tk.Canvas):
             self._draw_rect_thumb(tx0, y0, tx1, y1, bind_drag=False)
         self._drawn = True
 
-    # ---------- input handlers ----------
     def _wheel(self, evt):
         if not self._text: return
-        # Windows sends multiples of 120; others vary — normalize a bit
         delta = evt.delta if hasattr(evt, "delta") else 0
         steps = -1 * (delta // 120) if delta else (-1 if getattr(evt, "num", 0) == 4 else (1 if getattr(evt, "num", 0) == 5 else 0))
         if steps:
@@ -706,7 +666,6 @@ class GhostScrollbar(tk.Canvas):
             except Exception: pass
             self._repeat_id = None
 
-    # ---------- visibility (watchdog; no flicker) ----------
     def _is_pointer_near_edge(self) -> bool:
         try:
             if not self._text: return False
@@ -722,7 +681,6 @@ class GhostScrollbar(tk.Canvas):
             return False
 
     def _watchdog_tick(self):
-        # keep alive if near, hovering, or dragging
         if self._hovering or self._dragging or self._is_pointer_near_edge():
             self._poke()
         if self._drawn and (time.monotonic() - self._last_alive) < self.SHOW_SECS:
@@ -750,7 +708,6 @@ class GhostScrollbar(tk.Canvas):
             except Exception: pass
             self._watchdog_id = None
 
-    # ---------- theming ----------
     def set_accent(self, accent_hex: str):
         self.accent = accent_hex or self.accent
         if self._drawn:
@@ -761,10 +718,7 @@ class GhostScrollbar(tk.Canvas):
             except Exception: pass
             self._redraw()
 
-
-# ----------------------------- Main GUI -----------------------------
 class NovaGUI:
-    # --- URL detection pattern (no trailing punctuation) ---
     URL_RE = re.compile(r"(https?://[^\s<>()]+|www\.[^\s<>()]+)", re.IGNORECASE)
     TRAIL_PUNCT = ".,!?:;)]}›»”'"
 
@@ -773,17 +727,13 @@ class NovaGUI:
         self.language = selected_language
         self.glow_color = LANG_GLOW_COLORS.get(self.language, "#00ffcc")
 
-        # 🔔 Animation gate for main.py
         self.animation_ready = False
         self._anim_started_frames = 0
 
-        # Build hidden, then show with no flicker
         self.root = tk.Tk()
+        self._closing = False
+        self._after_ids = set()
 
-        self._closing = False          # set True when app is shutting down
-        self._after_ids = set()        # track scheduled after() ids
-
-        # Only set wm_class on Linux/WSL; Windows/macOS don’t have it
         if os.name != "nt":
             try:
                 self.root.wm_class("Nova")
@@ -798,9 +748,6 @@ class NovaGUI:
         except Exception:
             pass
 
-
-        # ⬇️ Linux/WSL font fallback so Hindi (and other scripts) render correctly
-        # (Do this BEFORE withdraw/deiconify so widgets inherit it.)
         if os.name != "nt":
             try:
                 preferred = "Noto Sans Devanagari"
@@ -825,11 +772,8 @@ class NovaGUI:
         except Exception:
             pass
 
-        # Wider so pills never clip
         W, H = 820, 680
-
         IS_LINUX_OR_WSL_LOCAL = IS_LINUX_OR_WSL
-
         if IS_LINUX_OR_WSL_LOCAL:
             try:
                 sh = self.root.winfo_screenheight()
@@ -848,7 +792,6 @@ class NovaGUI:
         else:
             self.root.resizable(False, False)
 
-        # Starry background
         self._bg_img = make_starry_bg(W, H)
         self._bg_label = tk.Label(self.root, image=self._bg_img, bd=0)
         self._bg_label.image = self._bg_img
@@ -856,7 +799,6 @@ class NovaGUI:
         self._bg_label.lower()
         self._bg_pil = ImageTk.getimage(self._bg_img).copy()
 
-        # --- Logo + sparkles ---
         self.logo_canvas = tk.Canvas(self.root, width=160, height=160, bg=STAR_BG, highlightthickness=0, bd=0)
         self.logo_canvas.pack(pady=(6, 2))
         self.logo_bg_item = self.logo_canvas.create_image(0, 0, anchor="nw")
@@ -885,12 +827,10 @@ class NovaGUI:
         self._last_anim_t = time.perf_counter()
         self._animate_logo_and_sparkles()
 
-        # Status pills
         self.status_bar = tk.Frame(self.root, bg=STAR_BG)
         self.status_bar.pack(pady=(0, 6), fill="x")
         self._build_mode_status_bar()
 
-        # --- Chat area with custom “ghost” scrollbar ---
         chat_wrap = tk.Frame(self.root, bg=STAR_BG)
         chat_wrap.pack(padx=10, pady=5, fill="x")
 
@@ -901,13 +841,11 @@ class NovaGUI:
             fg=self.glow_color, font=chat_font, bd=0,
             wrap="word", cursor="xterm", undo=False
         )
-        # Make text selectable & copyable while preventing edits
         self._install_readonly_bindings(self.text_display)
 
-        # Right-click context menu
         self._ctx_menu = tk.Menu(self.root, tearoff=0)
-        self.text_display.bind("<Button-3>", self._on_right_click, add="+")   # Windows/Linux
-        self.text_display.bind("<Button-2>", self._on_right_click, add="+")   # macOS secondary
+        self.text_display.bind("<Button-3>", self._on_right_click, add="+")
+        self.text_display.bind("<Button-2>", self._on_right_click, add="+")
 
         self.ghost_scroll = GhostScrollbar(chat_wrap, accent=self.glow_color, width=10)
         self.text_display.grid(row=0, column=0, sticky="nsew")
@@ -922,15 +860,18 @@ class NovaGUI:
         self.text_display.bind("<Enter>", lambda e: self.text_display.bind_all("<MouseWheel>", _on_mousewheel))
         self.text_display.bind("<Leave>", lambda e: self.text_display.unbind_all("<MouseWheel>"))
 
-        # Typing hint
         self.typing_label = tk.Label(self.root, font=("Consolas", 9), bg=STAR_BG, fg="gray")
         self.typing_label.pack()
 
-        # Input
         self.input_entry = tk.Entry(self.root, width=60, font=("Consolas", 11))
         self.input_entry.pack(pady=8)
 
-        # Mode toggles
+        try:
+            self.input_entry.focus_set()
+            self.root.after(300, lambda: self.input_entry.focus_set())
+        except Exception:
+            pass
+
         self.math_mode_var = tk.BooleanVar()
         self.plot_mode_var = tk.BooleanVar()
         self.physics_mode_var = tk.BooleanVar()
@@ -971,13 +912,10 @@ class NovaGUI:
 
         self.math_checkbox, self.plot_checkbox, self.physics_checkbox, self.chemistry_checkbox = self._cb_widgets
 
-                
         self.tip_math      = Tooltip(self.math_checkbox,      self._tip("math"),      font_family=self._tip_font(), fg=self.glow_color)
         self.tip_plot      = Tooltip(self.plot_checkbox,      self._tip("plot"),      font_family=self._tip_font(), fg=self.glow_color)
         self.tip_physics   = Tooltip(self.physics_checkbox,   self._tip("physics"),   font_family=self._tip_font(), fg=self.glow_color)
         self.tip_chemistry = Tooltip(self.chemistry_checkbox, self._tip("chemistry"), font_family=self._tip_font(), fg=self.glow_color)
-
-
 
         self._pulse_checkbox_glow()
 
@@ -995,18 +933,20 @@ class NovaGUI:
             var.trace_add("write", lambda *_: _sync_modes_to_utils())
         _sync_modes_to_utils()
 
-        # Buttons
         button_frame = tk.Frame(self.root, bg=STAR_BG); button_frame.pack()
-        self.send_button  = tk.Button(button_frame, text="Send",  command=self._on_send, width=12,
-                                      bg="#202033", fg="white", relief="flat", bd=0, highlightthickness=0,
-                                      activebackground="#202033", activeforeground="white")
+        self.send_button  = tk.Button(
+            button_frame, text="Send",
+            command=self._on_send,
+            width=12,
+            bg="#202033", fg="white", relief="flat", bd=0, highlightthickness=0,
+            activebackground="#202033", activeforeground="white"
+        )
         self.clear_button = tk.Button(button_frame, text="Clear", command=self._on_clear, width=12,
                                       bg="#202033", fg="white", relief="flat", bd=0, highlightthickness=0,
                                       activebackground="#202033", activeforeground="white")
         self.send_button.grid(row=0, column=0, padx=6)
         self.clear_button.grid(row=0, column=1, padx=6)
 
-        # Mic + wake label
         try:
             mic_on_path  = resource_path(os.path.join("assets", "mic_on.png"))
             mic_off_path = resource_path(os.path.join("assets", "mic_off.png"))
@@ -1028,10 +968,9 @@ class NovaGUI:
         self.glow_active = False
         self.mic_canvas.bind("<Enter>", self._start_hover_glow)
         self.mic_canvas.bind("<Leave>", self._stop_hover_glow)
-        self.mic_canvas.bind("<Button-1>", self._on_mic_click)   # CLICK TO TALK
+        self.mic_canvas.bind("<Button-1>", self._on_mic_click)
         self.mic_tooltip = Tooltip(self.mic_canvas, text="Click the mic to talk 🎤")
 
-        from utils import get_wake_mode
         _is_on = bool(get_wake_mode())
         initial_label = "Wake Mode: ON" if _is_on else "Wake Mode: OFF"
 
@@ -1049,9 +988,11 @@ class NovaGUI:
 
         self.external_callback = None
         self._start_idle_check()
-        self.input_entry.bind("<Return>", lambda event: self._on_send())
 
-        # Linux sizing pass before reveal
+        # Enter sends (no debug echo)
+        self.input_entry.bind("<Return>",   lambda e: (self._on_send(), "break"))
+        self.input_entry.bind("<KP_Enter>", lambda e: (self._on_send(), "break"))
+
         self.root.update_idletasks()
         _fit_linux_size(self.root, bottom_margin=72)
 
@@ -1065,28 +1006,24 @@ class NovaGUI:
         self._solution_popup = None
         self._ptt_busy = False
 
-        self.root.bind("<Configure>", lambda e: (self._ensure_above_taskbar(), self._refresh_bg_patches()))
+        self.root.bind("<Configure>", lambda e: (self._ensure_above_taskbar(), self._refresh_bg_patches))
         if IS_LINUX_OR_WSL_LOCAL:
             self.root.bind("<Map>", lambda e: _linux_center_after_map(self.root))
 
-        # keep a map of url tags → url
         self._url_tag_map: dict[str, str] = {}
         self._last_link_open_time = 0.0
         self._last_link_open_url  = ""
 
-    # ---------- read-only behavior: allow select & copy, block edits ----------
     def _install_readonly_bindings(self, text: tk.Text):
-        # Block editing keys, allow navigation & copy shortcuts
         ALLOW_KEYS = {"Left","Right","Up","Down","Home","End","Next","Prior","Tab","ISO_Left_Tab"}
         def _on_key(e):
-            ctrl = (e.state & 0x4) != 0 or (e.state & 0x20000) != 0  # Control or Command (mac)
-            if ctrl and e.keysym.lower() in ("c", "a"):  # copy / select all
+            ctrl = (e.state & 0x4) != 0 or (e.state & 0x20000) != 0
+            if ctrl and e.keysym.lower() in ("c", "a"):
                 if e.keysym.lower() == "a":
                     text.tag_add("sel", "1.0", "end-1c")
                 return None
             if e.keysym in ALLOW_KEYS:
                 return None
-            # block anything that would insert/delete
             if e.keysym in ("Return","BackSpace","Delete","Escape"):
                 return "break"
             if e.char and ord(e.char) >= 32:
@@ -1095,7 +1032,6 @@ class NovaGUI:
         text.bind("<Key>", _on_key, add="+")
 
     def _mix_to_white(self, hex_color: str, frac: float) -> str:
-        """Lighten a hex color toward white by frac (0..1)."""
         try:
             h = hex_color.lstrip('#')
             r = int(h[0:2], 16); g = int(h[2:4], 16); b = int(h[4:6], 16)
@@ -1105,10 +1041,8 @@ class NovaGUI:
             return f"#{r:02x}{g:02x}{b:02x}"
         except Exception:
             return hex_color
-        
+
     def _open_url_platform_fallback(self, url: str) -> bool:
-        """Try named browsers, then OS-level open per platform."""
-        # Plan B: named browsers via webbrowser.get()
         candidates = [
             "windows-default", "chrome", "msedge", "firefox", "safari", "opera"
         ]
@@ -1119,22 +1053,18 @@ class NovaGUI:
                     return True
             except Exception:
                 pass
-
-        # Plan C: OS launchers
         try:
             if sys.platform.startswith("win"):
                 os.startfile(url)  # type: ignore[attr-defined]
                 return True
         except Exception:
             pass
-
         try:
             if sys.platform == "darwin":
                 subprocess.run(["open", url], check=True)
                 return True
         except Exception:
             pass
-
         try:
             if sys.platform.startswith("linux"):
                 if shutil.which("xdg-open"):
@@ -1145,28 +1075,22 @@ class NovaGUI:
                     return True
         except Exception:
             pass
-
         return False
 
     def _speak(self, text: str):
-        """Say text with your existing TTS stack; fall back silently if not available."""
         try:
-            # Prefer utils if it wraps language/voice selection globally
-            from utils import speak_text as _speak_text  # if present
+            from utils import speak_text as _speak_text
             _speak_text(text)
             return
         except Exception:
             pass
         try:
-            # Or call tts_driver directly, which you said is already multilingual
             import tts_driver as tts
-            # many codebases expose tts.speak(text, lang=...), adjust if your signature differs
             tts.speak(text, lang=getattr(self, "language", "en"))
         except Exception:
             pass
 
     def _msg_link_fail_voice(self) -> str:
-        """Multilingual voice line (EN male; HI/FR/DE/ES female handled by your TTS config)."""
         lang = (getattr(self, "language", "en") or "en").lower()
         return {
             "en": "I couldn’t open that link automatically. I’ve copied it—just paste it into your browser.",
@@ -1178,7 +1102,6 @@ class NovaGUI:
               "I couldn’t open that link automatically. I’ve copied it—just paste it into your browser.")
 
     def _msg_link_fail_ui(self, url: str) -> str:
-        """Multilingual on-screen line."""
         lang = (getattr(self, "language", "en") or "en").lower()
         txts = {
             "en": "Couldn’t open link. Copied to clipboard:\n{url}",
@@ -1190,11 +1113,9 @@ class NovaGUI:
         return (txts.get(lang, txts["en"])).format(url=url)
 
     def _on_link_open_failed(self, url: str):
-        """Last-resort: copy → speak → show UI message."""
         try:
             self.root.clipboard_clear()
             self.root.clipboard_append(url)
-            # make sure clipboard is set even if the app closes quickly
             self.root.update()
         except Exception:
             pass
@@ -1205,8 +1126,6 @@ class NovaGUI:
         except Exception:
             pass
 
-
-    # ---- exact background crops for seamless canvases ----
     def _crop_from_bg(self, x, y, w, h):
         try:
             box = (int(x), int(y), int(x + w), int(y + h))
@@ -1287,9 +1206,7 @@ class NovaGUI:
             _linux_center_after_map(self.root)
         self.root.after(260, lambda: (self._set_alpha(1.0), self._ensure_above_taskbar()))
 
-    # ---------- animate logo + sparkles ----------
     def _animate_logo_and_sparkles(self):
-        # stop if we’re closing or canvas is gone
         if self._closing:
             return
         try:
@@ -1305,7 +1222,6 @@ class NovaGUI:
         face_speed = 60.0
         ring_speed = 60.0
 
-        # face orbit
         self.face_angle = (self.face_angle + face_speed * dt) % 360.0
         rad = math.radians(self.face_angle)
         cx, cy = self.face_center
@@ -1316,7 +1232,6 @@ class NovaGUI:
         except tk.TclError:
             return
 
-        # sparkle ring
         self.sparkle_angle = (self.sparkle_angle + ring_speed * dt) % 360.0
         try:
             for i, s in enumerate(self.sparkles):
@@ -1335,11 +1250,8 @@ class NovaGUI:
             if self._anim_started_frames >= 3:
                 self.animation_ready = True
 
-        # schedule next frame (tracked so we can cancel on close)
         self._after(33, self._animate_logo_and_sparkles)
 
-
-    # ---------- minimal API for popup ----------
     def show_solution(self, mode: str, emoji: str, answer_text: str):
         try:
             if self._solution_popup and self._solution_popup.winfo_exists():
@@ -1352,7 +1264,6 @@ class NovaGUI:
         if self._solution_popup and self._solution_popup.winfo_exists():
             self._solution_popup.append_followup(answer_text)
 
-    # ---------- status pills ----------
     def _build_mode_status_bar(self):
         left = tk.Label(self.status_bar, text="Modes:", bg=STAR_BG, fg="#88a",
                         font=("Consolas", 10, "bold"))
@@ -1399,17 +1310,14 @@ class NovaGUI:
         try: self.text_display.config(fg=self.glow_color)
         except Exception: pass
 
-        # recolor checkboxes
         for cb in (self.math_checkbox, self.plot_checkbox, self.physics_checkbox, self.chemistry_checkbox):
             try: cb.config(fg=self.glow_color, activeforeground=self.glow_color)
             except Exception: pass
 
-        # recolor checkbox glow ovals
         for oid in self._glow_ids:
             try: self.checkbox_canvas.itemconfig(oid, fill=self.glow_color)
             except Exception: pass
 
-        # recolor sparkles, hover ring, wake button, scrollbar
         try:
             for s in self.sparkles:
                 self.logo_canvas.itemconfig(s, fill=self.glow_color)
@@ -1419,7 +1327,6 @@ class NovaGUI:
             self.ghost_scroll.set_accent(self.glow_color)
         except Exception: pass
 
-        # recolor hyperlink tags
         for tag in list(self._url_tag_map.keys()):
             try:
                 self.text_display.tag_config(tag, foreground=self.glow_color, underline=True)
@@ -1427,15 +1334,12 @@ class NovaGUI:
                 pass
         self._update_status_pills()
         self.update_typing_label()
-            
-        
-        # 🔄 refresh tooltip texts + fonts/colors for the new language
+
         try:
             f = self._tip_font()
             for tip in (self.tip_math, self.tip_plot, self.tip_physics, self.tip_chemistry):
                 tip.set_font_family(f)
-                tip.set_fg(self.glow_color)  # ← keep tooltip text color in sync with UI glow
-
+                tip.set_fg(self.glow_color)
             self.tip_math.set_text(self._tip("math"))
             self.tip_plot.set_text(self._tip("plot"))
             self.tip_physics.set_text(self._tip("physics"))
@@ -1443,18 +1347,16 @@ class NovaGUI:
         except Exception:
             pass
 
-
     def _tip(self, key: str) -> str:
         lang = (self.language or "en").split("-")[0].lower()
         return (TIP_TEXTS.get(lang) or TIP_TEXTS["en"]).get(key, "")
 
     def _tip_font(self) -> str:
-        # Ensure proper glyphs for Hindi tooltips, etc.
         if (self.language or "en").startswith("hi"):
             if os.name == "nt":
-                return "Nirmala UI"             # Windows Hindi font
+                return "Nirmala UI"
             else:
-                return "Noto Sans Devanagari"   # Linux/mac preferred
+                return "Noto Sans Devanagari"
         return "Consolas"
 
     def _pulse_checkbox_glow(self):
@@ -1463,14 +1365,11 @@ class NovaGUI:
         radius = [min_r]; growing = [True]
 
         def animate():
-            # If window/canvas is gone, stop quietly (prevents TclError on close)
             try:
                 if not self.root.winfo_exists() or not self.checkbox_canvas.winfo_exists():
                     return
             except Exception:
                 return
-
-            # pulse radius
             if growing[0]:
                 radius[0] += 0.5
                 if radius[0] >= max_r:
@@ -1479,8 +1378,6 @@ class NovaGUI:
                 radius[0] -= 0.5
                 if radius[0] <= min_r:
                     growing[0] = True
-
-            # move glow ovals; guard each coords() call
             for i, base in enumerate(bases):
                 if not base:
                     continue
@@ -1492,21 +1389,16 @@ class NovaGUI:
                         x1 + radius[0], y1 + radius[0]
                     )
                 except Exception:
-                    # canvas/item may be gone while closing — just stop
                     return
-
-            # schedule next frame only if still alive
             try:
                 self.root.after(80, animate)
             except Exception:
                 pass
 
-        # start after layout settles
         try:
             self.root.after(800, animate)
         except Exception:
             pass
-
 
     def _compact_linux_ui(self):
         if not IS_LINUX_OR_WSL:
@@ -1540,15 +1432,17 @@ class NovaGUI:
         except Exception:
             pass
 
-    # ---------- messaging / input ----------
     def _dispatch_in_background(self, user_text: str):
         def worker():
-            try:
-                if callable(self.external_callback):
+            if callable(getattr(self, "external_callback", None)):
+                try:
                     self.external_callback(user_text)
                     return
-            except Exception:
-                pass
+                except Exception as e:
+                    try:
+                        self.root.after(0, lambda: self.show_message("Nova", f"Routing error: {e}"))
+                    except Exception:
+                        pass
             try:
                 from core_engine import process_command
                 process_command(
@@ -1566,22 +1460,49 @@ class NovaGUI:
                     is_plot_override=self.plot_mode_var.get(),
                     is_physics_override=self.physics_mode_var.get(),
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                try:
+                    self.root.after(0, lambda: self.show_message("Nova", f"Unhandled error: {e}"))
+                except Exception:
+                    pass
         threading.Thread(target=worker, daemon=True).start()
 
-    def _on_send(self):
-        user_text = self.input_entry.get().strip()
-        if user_text:
-            self.show_message("YOU", user_text)
+    def _on_send(self, *_):
+        try:
+            user_text = (self.input_entry.get() or "").strip()
+        except Exception:
+            user_text = ""
+
+        if not user_text:
+            return
+
+        try:
             self.input_entry.delete(0, tk.END)
-            self._dispatch_in_background(user_text)
-        self.input_entry.focus_set()
+        except Exception:
+            pass
+
+        try:
+            self.show_message("You", user_text)
+        except Exception:
+            pass
+
+        # Let typed text satisfy any waiting follow-up
+        try:
+            from followup import submit_typed_followup
+            submit_typed_followup(user_text)
+        except Exception:
+            pass
+
+        self._dispatch_in_background(user_text)
+
+        try:
+            self.input_entry.focus_set()
+        except Exception:
+            pass
 
     def _on_clear(self):
         self.text_display.delete('1.0', tk.END)
 
-    # ---- URL helpers ----
     def _normalize_url(self, u: str) -> str:
         u = u.strip()
         while u and u[-1] in self.TRAIL_PUNCT:
@@ -1589,21 +1510,17 @@ class NovaGUI:
         if u.lower().startswith("www."):
             u = "http://" + u
         return u
-    
 
     def _add_url_tag(self, start_idx: str, end_idx: str, url: str):
         tag = f"url_{len(self._url_tag_map)+1}"
         self._url_tag_map[tag] = url
         self.text_display.tag_add(tag, start_idx, end_idx)
-
-        # visual: use current glow color; underline; brighten on hover
         self.text_display.tag_config(tag, foreground=self.glow_color, underline=True)
 
-        # hover cursor + hover color
         def _enter(_e, t=tag):
             self.text_display.config(cursor="hand2")
             try:
-                hover = self._mix_to_white(self.glow_color, 0.50)  
+                hover = self._mix_to_white(self.glow_color, 0.50)
             except Exception:
                 hover = self.glow_color
             self.text_display.tag_config(t, foreground=hover)
@@ -1615,83 +1532,66 @@ class NovaGUI:
         self.text_display.tag_bind(tag, "<Enter>", _enter)
         self.text_display.tag_bind(tag, "<Leave>", _leave)
 
-        # open on click (debounced) — also swallow double-clicks cleanly
         def _click(e, u=url):
             self._open_url_debounced(u)
-            return "break"  # prevents odd selection jumps on click
+            return "break"
 
         self.text_display.tag_bind(tag, "<Button-1>", _click)
         self.text_display.tag_bind(tag, "<Double-Button-1>", _click)
 
-
     def _open_url_debounced(self, url: str, debounce_ms: int = 500):
-        """Open a URL at most once per quick burst of clicks (same URL), with fallbacks."""
         if not url:
             return
         now = time.monotonic()
         last_t = getattr(self, "_last_link_open_time", 0.0)
         last_u = getattr(self, "_last_link_open_url", "")
         if url == last_u and (now - last_t) < (debounce_ms / 1000.0):
-            return  # ignore rapid repeats
-
+            return
         self._last_link_open_time = now
         self._last_link_open_url  = url
 
-        # Plan A: normal webbrowser.open
         success = False
         try:
             success = bool(webbrowser.open(url, new=2))
         except Exception:
             success = False
-
-        # Plan B/C: platform fallbacks
         if not success:
             try:
                 success = self._open_url_platform_fallback(url)
             except Exception:
                 success = False
-
-        # Plan Z: copy + speak + show
         if not success:
             self._on_link_open_failed(url)
 
-
     def _insert_with_links(self, text: str):
-        """Insert text, auto-tagging URLs as clickable."""
         i = 0
         for m in self.URL_RE.finditer(text or ""):
             start, end = m.span()
             url_raw = m.group(0)
-            # insert pre-chunk
             if start > i:
                 self.text_display.insert(tk.END, text[i:start])
-            # clean url & insert
             clean = self._normalize_url(url_raw)
             before = self.text_display.index(tk.END)
             self.text_display.insert(tk.END, url_raw)
             after  = self.text_display.index(tk.END)
             self._add_url_tag(before, after, clean)
             i = end
-        # tail
         if i < len(text or ""):
             self.text_display.insert(tk.END, text[i:])
 
-
     def _accent_emoji_for_lang(self) -> str:
-        """Pick a circle emoji that roughly matches the current glow color."""
         lang = (getattr(self, "language", "en") or "en").lower()
         return {
-            "en": "🔵",  # cyan ≈ blue
-            "hi": "🟠",  # orange
-            "fr": "🔵",  # blue
-            "de": "🟢",  # green
-            "es": "🔴",  # red
+            "en": "🔵",
+            "hi": "🟠",
+            "fr": "🔵",
+            "de": "🟢",
+            "es": "🔴",
         }.get(lang, "🔵")
 
     def _user_display_name(self) -> str:
-        """Return saved user name, falling back to any cached name, else 'You'."""
         try:
-            from utils import get_user_name  # if provided by your utils
+            from utils import get_user_name
             name = get_user_name()
         except Exception:
             name = None
@@ -1699,37 +1599,24 @@ class NovaGUI:
             name = getattr(self, "user_name", None)
         return name or "You"
 
-
     def show_message(self, who: str, text: str):
-        """
-        Insert a chat line with a prefix:
-          - Nova messages: language-tinted circle + 'Nova'
-          - User messages: saved user name (fallback 'You')
-          - If 'who' is '', 'you', 'me', or 'user', treat as the local user
-        """
         w = (who or "").strip()
         key = w.casefold()
         is_nova = (key == "nova")
-
-        # tokens that mean "the local user"
         user_aliases = {"", "you", "me", "user"}
-
         name = "Nova" if is_nova else (self._user_display_name() if key in user_aliases else w)
         icon = self._accent_emoji_for_lang() if is_nova else "👤"
-
         prefix = f"{icon} {name}: "
         self.text_display.insert(tk.END, prefix)
         self._insert_with_links(text)
         self.text_display.insert(tk.END, "\n")
         self.text_display.see(tk.END)
 
-
-    # ---------- typing hint / wake toggle ----------
     def update_typing_label(self):
         from utils import get_wake_mode
         mode_texts = {
             "en": {"on": "🎤 Say 'Hey Nova' or type below.", "off": "🎤 Click the mic to talk, or type below."},
-            "hi": {"on": "🎤 'हे नोवा' बोलें या नीचे टाइप करें।", "off": "🎤 बोलने के लिए माइक पर क्लिक करें, या नीचे टाइप करें।"},
+            "hi": {"on": "🎤 'हे नोवा' बोलें या नीचे टाइप करें।", "off": "🎤 बोलने के लिए माइक पर क्लिक करें, या टाइप करें।"},
             "fr": {"on": "🎤 Dites « Hey Nova » ou tapez ci-dessous.", "off": "🎤 Cliquez sur le micro pour parler, ou tapez ci-dessous."},
             "de": {"on": "🎤 Sag „Hey Nova“ oder tippe unten.", "off": "🎤 Klicke auf das Mikro, um zu sprechen, oder tippe unten."},
             "es": {"on": "🎤 Di «Hey Nova» o escribe abajo.", "off": "🎤 Haz clic en el micrófono para hablar, o escribe abajo."}
@@ -1769,7 +1656,6 @@ class NovaGUI:
             self.show_message("Nova", "Wake mode enabled. Say 'Hey Nova' to begin.")
         self.update_typing_label()
 
-    # ---------- Mic: icon, glow, push-to-talk ----------
     def update_mic_icon(self, is_on: bool):
         img = self.mic_on_img if is_on else self.mic_off_img
         self.mic_canvas.itemconfig(self.mic_img_obj, image=img)
@@ -1778,7 +1664,6 @@ class NovaGUI:
         self.start_pulse() if is_on else self.stop_pulse()
         self.update_typing_label()
 
-    
     def start_pulse(self):
         self.stop_pulse()
         self.glow_active = True
@@ -1791,9 +1676,7 @@ class NovaGUI:
             self.mic_canvas.delete(self.pulse_circle)
             self.pulse_circle = None
 
-
     def _pulse_animation(self):
-        # stop if pulse turned off, or app is closing, or canvas is gone
         if not self.glow_active or self._closing:
             return
         try:
@@ -1802,12 +1685,10 @@ class NovaGUI:
         except Exception:
             return
 
-        # redraw ring
         try:
             if self.pulse_circle:
                 self.mic_canvas.delete(self.pulse_circle)
                 self.pulse_circle = None
-
             r = self.pulse_radius
             self.pulse_circle = self.mic_canvas.create_oval(
                 20 - r, 20 - r, 20 + r, 20 + r, outline=self.glow_color, width=2
@@ -1815,7 +1696,6 @@ class NovaGUI:
         except tk.TclError:
             return
 
-        # grow/shrink
         if self.pulse_growing:
             self.pulse_radius += 1
             if self.pulse_radius >= 28:
@@ -1825,9 +1705,7 @@ class NovaGUI:
             if self.pulse_radius <= 22:
                 self.pulse_growing = True
 
-        # schedule next frame (tracked)
         self._after(80, self._pulse_animation)
-
 
     def _start_hover_glow(self, event=None):
         if self.hover_circle is None:
@@ -1838,29 +1716,110 @@ class NovaGUI:
             self.mic_canvas.delete(self.hover_circle)
             self.hover_circle = None
 
-    # ---- Push-to-talk flow (one-shot) ----
+    # -----------------------------
+    # PUSH-ONCE-TO-TALK CHANGES
+    # -----------------------------
+
+    def _msg_listening(self) -> str:
+        try:
+            return _multilang(
+                en="Listening… (push once to talk)",
+                hi="सुन रही हूँ… (एक बार टैप करें)",
+                fr="À l’écoute… (appuyez une fois)",
+                es="Escuchando… (pulsa una vez)",
+                de="Höre zu… (einmal tippen)",
+            )
+        except Exception:
+            return "Listening… (push once to talk)"
+
+    def _msg_already_listening(self) -> str:
+        try:
+            return _multilang(
+                en="Already listening — just speak.",
+                hi="पहले से सुन रही हूँ — बोलिए।",
+                fr="J’écoute déjà — parlez.",
+                es="Ya estoy escuchando — habla.",
+                de="Ich höre bereits zu — sprich einfach.",
+            )
+        except Exception:
+            return "Already listening — just speak."
+
     def _on_mic_click(self, _evt=None):
-        from utils import get_wake_mode
-        if get_wake_mode():
-            self.show_message("Nova", "Wake Mode is on — just say 'Hey Nova'.")
+        # Allow push-to-talk regardless of Wake Mode.
+        if getattr(self, "_ptt_busy", False):
+            # User clicked again while recording — gentle feedback
+            try:
+                self.show_message("Nova", self._msg_already_listening())
+            except Exception:
+                pass
             return
-        if self._ptt_busy:
-            return
+
         self._ptt_busy = True
+
+        # Immediate visible feedback so users know something happened
+        try:
+            self.show_message("Nova", self._msg_listening())
+        except Exception:
+            pass
+
+        # Optional: if you have a mic enable/disable hook, disable during PTT
+        try:
+            if hasattr(self, "set_mic_enabled"):
+                self.set_mic_enabled(False)
+        except Exception:
+            pass
+
         self.start_pulse()
+
         threading.Thread(target=self._ptt_capture_once, daemon=True).start()
 
     def _ptt_capture_once(self):
-        from utils import listen_command
+        from utils import listen_command, get_wake_mode
+        paused = False
+        # Pause wake detection during PTT to avoid double triggers
         try:
-            text = listen_command()
+            if get_wake_mode():
+                try:
+                    from utils import pause_wake_detection
+                    pause_wake_detection(True)  # if helper exists
+                    paused = True
+                except Exception:
+                    paused = False
+        except Exception:
+            pass
+
+        try:
+            text = ""
+            try:
+                text = listen_command(skip_tts_gate=True)
+            except TypeError:
+                # older signature
+                text = listen_command()
         except Exception:
             text = ""
-        self.root.after(0, lambda t=text: self._ptt_handle_result(t))
+
+        def _finish(t=text, _paused=paused):
+            # Resume wake detection if we paused it
+            if _paused:
+                try:
+                    from utils import resume_wake_detection
+                    resume_wake_detection()
+                except Exception:
+                    pass
+            self._ptt_handle_result(t)
+
+        self.root.after(0, _finish)
 
     def _ptt_handle_result(self, text: str):
         self.stop_pulse()
         self._ptt_busy = False
+
+        # Optional: re-enable mic button if you disabled it above
+        try:
+            if hasattr(self, "set_mic_enabled"):
+                self.set_mic_enabled(True)
+        except Exception:
+            pass
 
         if not text:
             try:
@@ -1874,14 +1833,20 @@ class NovaGUI:
                     return
             except Exception:
                 pass
-
             if time.time() < getattr(utils, "SUPPRESS_SR_TTS_PROMPTS_UNTIL", 0.0):
                 return
-
             self.show_message("Nova", "Sorry, I didn't catch that. Could you please repeat?")
             return
 
-        self.show_message("YOU", text)
+        self.show_message("You", text)
+
+        # Let typed/voice result satisfy any waiting follow-up
+        try:
+            from followup import submit_typed_followup
+            submit_typed_followup(text)
+        except Exception:
+            pass
+        
         from core_engine import process_command
         try:
             process_command(
@@ -1899,7 +1864,8 @@ class NovaGUI:
                 is_physics_override=self.physics_mode_var.get(),
             )
 
-    # ---- right-click context menu ----
+    # -----------------------------
+
     def _url_under_pointer(self, x, y) -> str | None:
         idx = self.text_display.index(f"@{x},{y}")
         for tag in self.text_display.tag_names(idx):
@@ -1913,7 +1879,6 @@ class NovaGUI:
         except Exception:
             pass
         self._ctx_menu = tk.Menu(self.root, tearoff=0)
-        # Always offer Copy (falls back to copying selection)
         self._ctx_menu.add_command(label="Copy", command=lambda: self.text_display.event_generate("<<Copy>>"))
         url = self._url_under_pointer(event.x, event.y)
         if url:
@@ -1944,9 +1909,7 @@ class NovaGUI:
                 pass
             self._after_ids.discard(aid)
 
-
     def destroy(self):
-        # called when window closes (X or tray path ends up here)
         self._closing = True
         self._cancel_all_after()
         try:
@@ -1967,21 +1930,16 @@ class NovaGUI:
         try: self.root.deiconify()
         except Exception: pass
 
-
-# ----------------------------- Lazy singleton factory -----------------------------
 _nova_gui = None
 def get_gui():
-    """Create the GUI only when called (after language is hydrated)."""
     global _nova_gui
     if _nova_gui is None:
         _nova_gui = NovaGUI()
     return _nova_gui
 
 def gui_if_ready():
-    """Return GUI instance if already created; don't auto-create."""
     return _nova_gui
 
-# ---- Bridge for solver popups (unchanged logic, but no auto-create) ----
 _MODE_META = {
     "math": ("Math Mode", "🧠"),
     "plot": ("Plot Mode", "📈"),
@@ -1989,14 +1947,30 @@ _MODE_META = {
     "chemistry": ("Chemistry Mode", "🧪"),
 }
 
-def show_mode_solution(mode_key: str, text: str):
-    name, emoji = _MODE_META.get(mode_key.lower(), ("Solution", "✨"))
-    g = gui_if_ready()
-    if not g: return
+def _wait_and_open_solution(self, mode: str, emoji: str, answer_text: str):
+    # Gate until TTS / language flow is idle, then open the window
     try:
-        g.root.after(0, lambda: g.show_solution(mode=name, emoji=emoji, answer_text=text))
+        from utils import LANGUAGE_FLOW_ACTIVE, tts_busy
+        is_busy = bool(LANGUAGE_FLOW_ACTIVE or (tts_busy and tts_busy.is_set()))
     except Exception:
-        pass
+        is_busy = False
+
+    if not is_busy:
+        try:
+            if self._solution_popup and self._solution_popup.winfo_exists():
+                self._solution_popup.destroy()
+        except Exception:
+            pass
+        self._solution_popup = _SolutionPopup(self.root, mode=mode, emoji=emoji, first_answer=answer_text)
+    else:
+        # check again shortly
+        self.root.after(120, lambda: self._wait_and_open_solution(mode, emoji, answer_text))
+
+
+def show_solution(self, mode: str, emoji: str, answer_text: str):
+    # SHOW (open popup only after TTS/language-flow is idle)
+    self._wait_and_open_solution(mode, emoji, answer_text)
+
 
 def append_mode_solution(mode_key: str, text: str):
     g = gui_if_ready()
@@ -2006,7 +1980,6 @@ def append_mode_solution(mode_key: str, text: str):
     except Exception:
         pass
 
-# ---- Lazy proxy so utils.gui_callback can always call nova_gui.root.after(...) safely
 class _NovaGUIProxy:
     @property
     def root(self):
@@ -2024,24 +1997,30 @@ def _gui_solution_bridge(channel, payload):
     g = gui_if_ready()
     MODE_MAP = _MODE_META
     ch = str(channel or "").strip().lower()
+
     if ch not in MODE_MAP:
         txt = payload if isinstance(payload, str) else (payload or {}).get("html", "")
         if txt and g:
             try:
-                g.root.after(0, lambda: g.show_message("NOVA", txt))
+                g.root.after(0, lambda: g.show_message("Nova", txt))
             except Exception:
                 pass
         return
 
     if isinstance(payload, str):
-        html = payload; actions = {}; ctx = {}; action_hint = None
+        html = payload
+        actions = {}
+        ctx = {}
+        action_hint = None
     else:
-        html   = (payload or {}).get("html", "")
-        actions= (payload or {}).get("actions") or {}
-        ctx    = (payload or {}).get("ctx") or {}
+        html        = (payload or {}).get("html", "")
+        actions     = (payload or {}).get("actions") or {}
+        ctx         = (payload or {}).get("ctx") or {}
         action_hint = (payload or {}).get("action")
 
-    if not html or not g: return
+    if not html or not g:
+        return
+
     name, emoji = MODE_MAP[ch]
 
     def _apply():
@@ -2051,14 +2030,15 @@ def _gui_solution_bridge(channel, payload):
             if getattr(g, "_solution_popup", None) and g._solution_popup.winfo_exists():
                 g.append_solution(html)
             else:
-                g.show_solution(mode=name, emoji=emoji, first_answer=html)
+                g.show_solution(mode=name, emoji=emoji, answer_text=html)
 
         primary = actions.get("primary")
         chips   = actions.get("chips") or []
         inline  = actions.get("inline")
         original_text = ctx.get("original_text", "") or (payload or {}).get("question", "")
 
-        primary_label = None; primary_cmd = None
+        primary_label = None
+        primary_cmd   = None
         chip_labels, chip_cmds = [], []
 
         if primary and isinstance(primary, dict) and primary.get("id") == "more_detail":
@@ -2080,13 +2060,16 @@ def _gui_solution_bridge(channel, payload):
                     from handlers.physics_solver import handle_graph_confirmation
                     handle_graph_confirmation("graph it")
                 except Exception as e:
-                    try: g.append_solution(f"(Could not plot: {e})")
-                    except Exception: pass
+                    try:
+                        g.append_solution(f"(Could not plot: {e})")
+                    except Exception:
+                        pass
             primary_cmd = _on_plot_it
 
         for chip in chips:
             lab = chip.get("label") if isinstance(chip, dict) else str(chip)
-            if not lab: continue
+            if not lab:
+                continue
             chip_labels.append(lab)
             def _make_cmd(q=lab):
                 def _cmd():
@@ -2108,27 +2091,28 @@ def _gui_solution_bridge(channel, payload):
             except Exception:
                 pass
 
-        if inline and isinstance(inline, dict) and inline.get("id") == "plot_it":
-            inline_label = inline.get("label", "✦ Plot it")
-            anchor_text  = inline.get("anchor", "Plot it")
-            def _on_plot_it_inline():
+            if inline and isinstance(inline, dict) and inline.get("id") == "plot_it":
+                inline_label = inline.get("label", "✦ Plot it")
+                anchor_text  = inline.get("anchor", "Plot it")
+                def _on_plot_it_inline():
+                    try:
+                        from handlers.physics_solver import handle_graph_confirmation
+                        handle_graph_confirmation("graph it")
+                    except Exception as e:
+                        try:
+                            g.append_solution(f"(Could not plot: {e})")
+                        except Exception:
+                            pass
                 try:
-                    from handlers.physics_solver import handle_graph_confirmation
-                    handle_graph_confirmation("graph it")
-                except Exception as e:
-                    try: g.append_solution(f"(Could not plot: {e})")
-                    except Exception: pass
-            try:
-                if getattr(g, "_solution_popup", None) and hasattr(g._solution_popup, "add_inline_button"):
-                    g._solution_popup.add_inline_button(inline_label, _on_plot_it_inline, anchor_text=anchor_text)
-                elif getattr(g, "_solution_popup", None) and hasattr(g._solution_popup, "set_actions"):
-                    g._solution_popup.set_actions(inline_label, _on_plot_it_inline, [], [])
-            except Exception:
-                pass
+                    if hasattr(g._solution_popup, "add_inline_button"):
+                        g._solution_popup.add_inline_button(inline_label, _on_plot_it_inline, anchor_text=anchor_text)
+                    elif hasattr(g._solution_popup, "set_actions"):
+                        g._solution_popup.set_actions(inline_label, _on_plot_it_inline, [], [])
+                except Exception:
+                    pass
 
     try:
-        if g:
-            g.root.after(0, _apply)
+        g.root.after(0, _apply)
     except Exception:
         pass
 

@@ -43,7 +43,7 @@ for top in ["assets", "data", "handlers", "logs", "macbin"]:
     add_tree(top)
 
 # Root-level single files
-for fn in ["settings.json", "curiosity_data.json", "utils.py", "hashed.txt"]:  # ← ADDED hashed.txt
+for fn in ["settings.json", "curiosity_data.json", "utils.py", "hashed.txt"]:
     p = BASE / fn
     if p.exists():
         datas.append((str(p), "."))
@@ -53,11 +53,19 @@ man = BASE / "third_party/piper/models_manifest.json"
 if man.exists():
     datas.append((str(man), "third_party/piper"))
 
-# Piper models + macOS binaries + espeak data (reuse linux-x64 folder)
+# Piper models + macOS binaries + espeak data
 add_tree("third_party/piper/models")
 add_tree("third_party/piper/macos-x64")
 add_tree("third_party/piper/macos-arm64")
 add_tree("third_party/piper/linux-x64/espeak-ng-data")
+
+# === NEW: ship Vosk acoustic models (the 5 languages you downloaded) ===
+add_tree("vosk_models")
+
+# === NEW (optional): ship ffmpeg if you want ffplay/ffmpeg on mac too ===
+# If you rely on 'afplay' you can omit this. If you keep an ffmpeg/ folder (e.g., ffmpeg/macos-x64/bin/ffplay),
+# the next line will package it.
+add_tree("ffmpeg")
 
 # Hidden imports & extra package data
 hidden = []
@@ -69,12 +77,30 @@ hidden += [
     "numpy", "sympy", "matplotlib", "objc", "AppKit", "Foundation", "Quartz",
     "pyttsx3.drivers", "pyttsx3.drivers.nsss",
 ]
+
+# === NEW: ASR/VAD hidden imports so PyInstaller grabs everything ===
+try:
+    hidden += collect_submodules("vosk")
+except Exception:
+    pass
+try:
+    hidden += collect_submodules("webrtcvad")
+except Exception:
+    pass
+# (If you use PyAudio on mac, include it too)
+try:
+    hidden += collect_submodules("pyaudio")
+except Exception:
+    pass
+
+# Include package data for libs that need it
 for m in ["matplotlib", "dateparser", "dateparser_data", "certifi"]:
     try:
         datas += collect_data_files(m)
     except Exception:
         pass
 
+# mac build excludes Windows-only stuff
 excludes = ["win32com", "comtypes", "pythoncom", "pywintypes", "wmi"]
 
 # ---- main app (Nova) ----

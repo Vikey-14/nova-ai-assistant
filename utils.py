@@ -18,7 +18,7 @@ try:
 except Exception:
     pass
 
-# ------------ NEW: prefer DirectSound for pygame on Windows (reduces quirks)
+# Prefer DirectSound for pygame on Windows (reduces quirks)
 if sys.platform.startswith("win"):
     os.environ.setdefault("SDL_AUDIODRIVER", "directsound")
 
@@ -30,6 +30,7 @@ def _app_dir() -> Path:
 
 APP_DIR = _app_dir()
 mpl_cfg = APP_DIR / ".mplcache"
+
 try:
     mpl_cfg.mkdir(parents=True, exist_ok=True)
     os.environ.setdefault("MPLCONFIGDIR", str(mpl_cfg))
@@ -48,10 +49,6 @@ from typing import Callable, Optional, Any, Union, Iterable
 
 # ── third-party (SAFE at top-level)
 import speech_recognition as sr
-# ⚠️ Heavy/optional deps are imported lazily where used:
-#    wmi, gTTS, playsound, comtypes/ctypes, pycaw.pycaw
-
-# --- third-party (SAFE at top-level) -----------------------------------------
 try:
     _SR_AVAILABLE = True
 except Exception:
@@ -86,7 +83,6 @@ def _find_in_roots(names: list[str]) -> Optional[str]:
             p = (r / n)
             try:
                 if p.exists():
-                    # ensure executable bit on Unix; Windows doesn't need this
                     if os.name != "nt":
                         try:
                             st = p.stat()
@@ -100,12 +96,8 @@ def _find_in_roots(names: list[str]) -> Optional[str]:
     return None
 
 def _which(cmd: str) -> Optional[str]:
-    """
-    Prefer a bundled binary (repo/bin/<os>/<cmd> or <bundle>/_internal/bin/...) then PATH.
-    """
     exe_name = cmd + (".exe" if sys.platform.startswith("win") and not cmd.endswith(".exe") else "")
     plat = _platform_key()
-    # check common bundle locations first
     names = [
         f"bin/{plat}/{exe_name}",
         f"bin/{exe_name}",
@@ -120,16 +112,10 @@ def _which(cmd: str) -> Optional[str]:
         return None
 
 def _ffplay_from_bundle_or_path() -> Optional[str]:
-    """
-    Prefer a bundled ffplay over PATH:
-      - dev run:   <repo>/ffmpeg/bin/ffplay(.exe)
-      - frozen exe:MEIPASS/ffmpeg/bin/ffplay(.exe)
-      - else:      whatever is on PATH
-    """
     exe = "ffplay.exe" if sys.platform.startswith("win") else "ffplay"
     bundle_candidates = [
-        Path(__file__).resolve().parent / "ffmpeg" / "bin" / exe,         # dev layout
-        Path(getattr(sys, "_MEIPASS", "")) / "ffmpeg" / "bin" / exe,      # frozen layout
+        Path(__file__).resolve().parent / "ffmpeg" / "bin" / exe,
+        Path(getattr(sys, "_MEIPASS", "")) / "ffmpeg" / "bin" / exe,
     ]
     for p in bundle_candidates:
         try:
@@ -139,16 +125,8 @@ def _ffplay_from_bundle_or_path() -> Optional[str]:
             pass
     return _which("ffplay")
 
-# ─────────────── NEW: dedicated resolver for mac brightness CLI ──────────────
+# ─────────────── dedicated resolver for mac brightness CLI ──────────────
 def _brightness_cmd() -> Optional[str]:
-    """
-    Resolve the macOS 'brightness' CLI, preferring the bundled copy.
-
-    Search order:
-      1) APP_DIR/macbin/brightness          (dev & source runs)
-      2) MEIPASS/macbin/brightness          (PyInstaller bundle)
-      3) PATH                               (last resort)
-    """
     exe = "brightness"
     candidates: list[Optional[Union[str, Path]]] = [
         APP_DIR / "macbin" / exe,
@@ -159,7 +137,7 @@ def _brightness_cmd() -> Optional[str]:
         try:
             if c and Path(str(c)).exists():
                 p = Path(str(c))
-                if os.name != "nt":  # ensure exec bit on Unix-y systems
+                if os.name != "nt":
                     try:
                         st = p.stat()
                         if not (st.st_mode & 0o111):
@@ -171,15 +149,8 @@ def _brightness_cmd() -> Optional[str]:
             pass
     return None
 
-# ─────────────── NEW: robust audio player + playsound monkey-patch ───────────
+# ─────────────── robust audio player + playsound monkey-patch ───────────
 def _play_mp3_windows(path: str, *, block: bool = True) -> None:
-    """
-    Reliable MP3 playback on Windows without MCI:
-      1) ffplay (if available)
-      2) pygame.mixer
-      3) shell open (last resort)
-    """
-    # 1) ffplay (most robust; no UI)
     ff = _ffplay_from_bundle_or_path()
     if ff:
         try:
@@ -192,12 +163,9 @@ def _play_mp3_windows(path: str, *, block: bool = True) -> None:
             return
         except Exception:
             pass
-
-    # 2) pygame mixer
     try:
         import pygame
         if not pygame.mixer.get_init():
-            # 24k is fine for Edge 24k outputs; mixer will resample if needed
             pygame.mixer.init(frequency=24000, channels=1)
         snd = pygame.mixer.Sound(path)
         ch = snd.play()
@@ -207,17 +175,14 @@ def _play_mp3_windows(path: str, *, block: bool = True) -> None:
         return
     except Exception:
         pass
-
-    # 3) Last resort: shell open (may show a player app)
     try:
         os.startfile(path)
         if block:
-            time.sleep(1.2)  # crude wait if caller expects blocking
+            time.sleep(1.2)
     except Exception:
         pass
 
 def _play_audio_file_cross(path: str, *, block: bool = True) -> None:
-    """Cross-platform helper: winsound for WAV on Windows, pygame/ffplay/afplay/etc for others."""
     if not path:
         return
     p = str(path)
@@ -237,7 +202,6 @@ def _play_audio_file_cross(path: str, *, block: bool = True) -> None:
         _play_mp3_windows(p, block=block)
         return
 
-    # macOS: prefer afplay
     if sys.platform == "darwin":
         af = _which("afplay")
         if af:
@@ -250,7 +214,6 @@ def _play_audio_file_cross(path: str, *, block: bool = True) -> None:
             except Exception:
                 pass
 
-    # Linux/WSL: try ffplay, then paplay/aplay
     ff = _which("ffplay")
     if ff:
         try:
@@ -275,12 +238,10 @@ def _play_audio_file_cross(path: str, *, block: bool = True) -> None:
             except Exception:
                 pass
 
-# Monkey-patch playsound on Windows to avoid MCI (root cause of your Error 277)
 try:
     if sys.platform.startswith("win"):
         import playsound as _playsound_mod  # type: ignore[import-not-found]
         _original_playsound = getattr(_playsound_mod, "playsound", None)
-
         def _playsound_safe(path, block=True):
             try:
                 _play_audio_file_cross(path, block=bool(block))
@@ -288,27 +249,24 @@ try:
                 if callable(_original_playsound):
                     try: _original_playsound(path, block)
                     except Exception: pass
-
         if callable(_original_playsound):
             _playsound_mod.playsound = _playsound_safe  # type: ignore[assignment]
 except Exception:
     pass
 # ───────────────────────────── end robust player patch ────────────────────────
 
-
 # ── cross-platform TTS (session-locked per language) ──────────────────────────
 from tts_driver import get_tts
 try:
-    from tts_driver import init_tts_for as _init_tts_for  # new session initializer
+    from tts_driver import init_tts_for as _init_tts_for
 except Exception:
-    _init_tts_for = None  # fallback path below
+    _init_tts_for = None
 
-_TTS_SESSIONS: dict[str, dict] = {}   # e.g. { "en": {...}, "hi": {...} }
+_TTS_SESSIONS: dict[str, dict] = {}
 _tts_legacy = None
 _tts_lock = threading.RLock()
 
 def _ensure_legacy_router():
-    """Legacy router for older tts_driver versions (kept for back-compat)."""
     global _tts_legacy
     with _tts_lock:
         if _tts_legacy is None:
@@ -316,14 +274,10 @@ def _ensure_legacy_router():
     return _tts_legacy
 
 def _make_session(lang_code: str) -> dict:
-    """
-    Create a session object for a base language (en/hi/de/fr/es).
-    Prefers tts_driver.init_tts_for. Falls back to a router shim.
-    """
     base = (lang_code or "en").split("-", 1)[0].lower()
     if _init_tts_for:
         try:
-            sess = _init_tts_for(base)  # expected: {"engine": ..., "engine_name": "...", "voice_id": ..., "lang": "..."}
+            sess = _init_tts_for(base)
             if isinstance(sess, dict):
                 return sess
         except Exception:
@@ -332,13 +286,12 @@ def _make_session(lang_code: str) -> dict:
     return {"engine": eng, "engine_name": "router", "voice_id": None, "lang": base}
 
 def get_session_tts(lang_code: str) -> dict:
-    """Return the pre-initialized TTS session for a base language (create if missing)."""
     base = (lang_code or "en").split("-", 1)[0].lower()
     with _tts_lock:
         if base not in _TTS_SESSIONS:
             _TTS_SESSIONS[base] = _make_session(base)
             try:
-                _real_speak(_TTS_SESSIONS[base], " ", wait=True)  # optional warmup
+                _real_speak(_TTS_SESSIONS[base], " ", wait=True)
             except Exception:
                 pass
         return _TTS_SESSIONS[base]
@@ -352,21 +305,14 @@ from intents import (
     get_invalid_language_voice_to_typed,
 )
 
-# --- Linux/WSL detector (Windows untouched) -----------------------------------
 def _is_linux_or_wsl() -> bool:
     try:
         return sys.platform.startswith("linux") or ("WSL_DISTRO_NAME" in os.environ)
     except Exception:
         return False
 
-# --- First-boot English voice lock (Linux-only) --------------------------------
 _BOOT_LANG_LOCK = False
-
 def enable_boot_lang_lock_if_needed(initial_lang: str = "en") -> None:
-    """
-    Linux/WSL only: force TTS to speak in English until onboarding finishes.
-    Has no effect on Windows/mac. Safe to call multiple times.
-    """
     global _BOOT_LANG_LOCK, selected_language
     if _is_linux_or_wsl():
         _BOOT_LANG_LOCK = True
@@ -382,17 +328,13 @@ def clear_boot_lang_lock() -> None:
 def is_boot_lang_lock_active() -> bool:
     return bool(_BOOT_LANG_LOCK)
 
-# ── SSML sanitizer -------------------------------------------------------------
 _SSML_TAG_RE = re.compile(r"</?[^>]+?>")
-
 def _strip_ssml(text: str) -> str:
     if not text:
         return ""
     return _SSML_TAG_RE.sub("", text)
 
-# --- Global guard for language change flow ---
 LANGUAGE_FLOW_ACTIVE = False
-
 def set_language_flow(active: bool, suppress_ms: int = 0):
     global LANGUAGE_FLOW_ACTIVE
     LANGUAGE_FLOW_ACTIVE = bool(active)
@@ -401,7 +343,6 @@ def set_language_flow(active: bool, suppress_ms: int = 0):
             suppress_sr_prompts(int(suppress_ms))
         except Exception:
             pass
-
 
 SUPPORTED_LANGS = set(_INT_SUPPORTED_LANGS)
 def guess_language_code(heard: str) -> Optional[str]:
@@ -448,9 +389,21 @@ def resource_path(relative_path: str) -> str:
     return str(BASE_DIR / p)
 
 # =============================================================================
-# BUILD / VERSION ID (for "show tray tip once per build")
+# BUILD / VERSION ID
 # =============================================================================
 def current_build_id() -> str:
+    """
+    Prefer a build id stamped into data/build_id.txt (added by build.ps1).
+    Fall back to exe/src mtime if that file isn't present (e.g., dev runs).
+    """
+    # 1) Preferred: build_id.txt bundled by PyInstaller
+    try:
+        p = pkg_path("data/build_id.txt")
+        return Path(p).read_text(encoding="utf-8").strip()
+    except Exception:
+        pass
+
+    # 2) Fallbacks: your existing logic
     try:
         if getattr(sys, "frozen", False):
             exe = Path(sys.executable)
@@ -556,7 +509,6 @@ language_voice_map = {
 
 selected_language = "en"
 
-# --- Goodbye line + hard-timed close delays (NO FALLBACKS) --------------------
 GOODBYE_LINES = {
     "en": "Goodbye! See you soon.",
     "hi": "अलविदा! फिर मिलेंगे।",
@@ -565,9 +517,8 @@ GOODBYE_LINES = {
     "es": "¡Adiós! Hasta pronto.",
 }
 
-# Paste your EXACT calibrated values (milliseconds) here (base values)
 GOODBYE_MS = {
-    "en": 2000,  # Windows English baseline (timer-based)
+    "en": 2000,
     "hi": 4300,
     "de": 2450,
     "fr": 3400,
@@ -575,14 +526,6 @@ GOODBYE_MS = {
 }
 
 def _platform_goodbye_ms(base_lang: str) -> int:
-    """
-    Return the platform-adjusted goodbye delay for the given base language.
-    We always use a timer on every OS. English values by platform:
-      - Windows: 2000 ms
-      - Linux/WSL (Edge Neural): 4450 ms
-      - macOS: 4500 ms
-    Other languages use GOODBYE_MS as-is.
-    """
     ms = int(GOODBYE_MS.get(base_lang, 2000))
     try:
         if base_lang == "en":
@@ -606,12 +549,17 @@ def _settings_path() -> Path:
     d.mkdir(parents=True, exist_ok=True)
     return d / "settings.json"
 
+
 _DEFAULT_SETTINGS = {
     "language": "en",
     "wake_mode": True,
     "enable_tray": True,
-    "user_name": ""
-}
+    "user_name": "",
+    "use_managed_services": True,
+    "relay_base_url": "https://nova-relay.onrender.com",   
+    "relay_token": "2341028d41787740ed29ea149327b9de44124c6b0f1a2750fb7449289ab6348d"      
+ }
+
 
 def load_settings() -> dict:
     out = dict(_DEFAULT_SETTINGS)
@@ -762,7 +710,6 @@ def _normalize_tts_lang(code: str) -> str:
 def _real_speak(sess: dict, text: str, *, wait: bool) -> None:
     if not text:
         return
-
     def _do():
         try:
             eng = sess.get("engine")
@@ -784,7 +731,6 @@ def _real_speak(sess: dict, text: str, *, wait: bool) -> None:
                 print("🗣️ " + text)
             except Exception:
                 pass
-
     if wait:
         _do()
     else:
@@ -797,12 +743,8 @@ def speak(message: str, *, tts_lang: str | None = None, blocking: bool = False):
         intended = "en"
     intended_norm = _normalize_tts_lang(intended)
     clean = _strip_ssml(_normalize_for_tts(message, lang=intended_norm))
-
-    # Note: we do not depend on blocking behavior for shutdown timing anymore.
     suppress_sr_prompts(_estimate_tts_ms(clean) + 250)
-
     sess = get_session_tts(intended_norm)
-
     tts_busy.set()
     try:
         with _speak_lock:
@@ -841,7 +783,6 @@ def _speak_multilang_async(en, hi="", de="", fr="", es="", log_command=None, tts
     _speak_multilang(en, hi, de, fr, es, log_command, tts_format)
 
 def try_stop_tts_playback():
-    """Best-effort stop using all active session engines + legacy router."""
     try:
         for sess in list(_TTS_SESSIONS.values()):
             eng = sess.get("engine")
@@ -861,12 +802,9 @@ def try_stop_tts_playback():
 
 def begin_exit_with_goodbye_async(grace_timeout_s: float | None = None):
     import threading, os, sys, time
-
-    # prevent double-triggering from multiple UI paths
     if _EXIT_IN_PROGRESS.is_set():
         return
     _EXIT_IN_PROGRESS.set()
-
     _shutdown = None
     try:
         from __main__ import _shutdown_main as _shutdown
@@ -875,9 +813,7 @@ def begin_exit_with_goodbye_async(grace_timeout_s: float | None = None):
             from main import _shutdown_main as _shutdown
         except Exception:
             _shutdown = None
-
     def _worker():
-        # 1) Stop wake-word listener cleanly
         try:
             from wake_word_listener import stop_wake_listener_thread, wait_for_wake_quiet
             try: stop_wake_listener_thread()
@@ -886,32 +822,22 @@ def begin_exit_with_goodbye_async(grace_timeout_s: float | None = None):
             except Exception: pass
         except Exception:
             pass
-
-        # 2) Stop any ongoing TTS to avoid overlap
         try:
             try_stop_tts_playback()
         except Exception:
             pass
-
-        # 3) Speak goodbye and close using a HARD TIMER (cross-platform, no blocking reliance)
-        base = _base_ui_lang()  # 'en' | 'hi' | 'de' | 'fr' | 'es'
+        base = _base_ui_lang()
         msg  = GOODBYE_LINES[base]
         ms   = int(_platform_goodbye_ms(base))
-
         try:
-            # Timer starts exactly when we request speech:
             speak(msg, tts_lang=base, blocking=False)
             time.sleep(ms / 1000.0)
         except Exception:
-            # even if TTS fails, fall through to shutdown
             pass
-
-        # 4) Final drain (minimal) and exit
         try:
             wait_for_tts_quiet(150)
         except Exception:
             pass
-
         try:
             if callable(_shutdown):
                 _shutdown()
@@ -919,7 +845,6 @@ def begin_exit_with_goodbye_async(grace_timeout_s: float | None = None):
         except Exception:
             pass
         os._exit(0)
-
     threading.Thread(target=_worker, daemon=True).start()
 
 # =============================================================================
@@ -1102,7 +1027,10 @@ def _is_self_echo(text: str) -> bool:
         return True
     return any(rx.search(t) for rx in SELF_ECHO_REGEXES)
 
-def listen_command(
+# ─────────────────────────────────────────────────────────────────────────────
+# LISTEN COMMAND — Vosk streaming first, original one-shot as fallback
+# ─────────────────────────────────────────────────────────────────────────────
+def _listen_command_oneshot(
     *,
     skip_tts_gate: bool = False,
     disable_self_echo_filter: bool = False,
@@ -1110,6 +1038,9 @@ def listen_command(
     phrase_time_limit_s: int = 10,
     ambient_calib_s: float = 0.6
 ) -> str:
+    """
+    Original one-shot recognizer (your previous implementation), preserved as a fallback.
+    """
     global _SR_WARNED, _SR_NOTICE_SHOWN
     if not _SR_AVAILABLE:
         if not _SR_WARNED:
@@ -1120,7 +1051,13 @@ def listen_command(
             now = time.time()
         except Exception:
             now = 0.0
-        if (not _SR_NOTICE_SHOWN) and (now >= SUPPRESS_SR_TTS_PROMPTS_UNTIL) and (not NAME_CAPTURE_IN_PROGRESS):
+        # NOTE: if SR is missing, still avoid nagging during name flows
+        try:
+            from gui_interface import nova_gui as _gui_ref
+            _name_flow = bool(getattr(_gui_ref, "name_capture_active", False)) or bool(getattr(_gui_ref, "awaiting_name_confirmation", False))
+        except Exception:
+            _name_flow = False
+        if (not _SR_NOTICE_SHOWN) and (now >= SUPPRESS_SR_TTS_PROMPTS_UNTIL) and (not NAME_CAPTURE_IN_PROGRESS) and (not _name_flow):
             _SR_NOTICE_SHOWN = True
             _speak_multilang(
                 "Speech recognition isn’t installed, so I can’t listen right now.",
@@ -1224,17 +1161,38 @@ def listen_command(
             except Exception: pass
             return recognized
 
-        is_last_attempt = (attempt == attempts - 1)
+        # ------------- detect name-flow states to suppress prompts -------------
         lang_capture_active = False
+        name_capture_active_gui = False
+        awaiting_name_confirmation_gui = False
+        pending_name_confirm_active = False
         try:
             from gui_interface import nova_gui as _gui_ref
             lang_capture_active = bool(getattr(_gui_ref, "language_capture_active", False))
+            name_capture_active_gui = bool(getattr(_gui_ref, "name_capture_active", False))
+            awaiting_name_confirmation_gui = bool(getattr(_gui_ref, "awaiting_name_confirmation", False))
         except Exception:
             lang_capture_active = False
+
+        try:
+            try:
+                from __main__ import _PENDING_NAME_CONFIRM as _PNC  # type: ignore
+            except Exception:
+                from main import _PENDING_NAME_CONFIRM as _PNC  # type: ignore
+            if isinstance(_PNC, dict):
+                pending_name_confirm_active = bool(_PNC.get("active"))
+        except Exception:
+            pending_name_confirm_active = False
+        # ----------------------------------------------------------------------
+
+        is_last_attempt = (attempt == attempts - 1)
 
         suppress_prompts = (
             NAME_CAPTURE_IN_PROGRESS
             or lang_capture_active
+            or name_capture_active_gui
+            or awaiting_name_confirmation_gui
+            or pending_name_confirm_active
             or LANGUAGE_FLOW_ACTIVE
             or tts_busy.is_set()
             or time.time() < SUPPRESS_SR_TTS_PROMPTS_UNTIL
@@ -1259,6 +1217,158 @@ def listen_command(
                 )
         continue
     return ""
+
+
+def listen_command(
+    *,
+    skip_tts_gate: bool = False,
+    disable_self_echo_filter: bool = False,
+    timeout_s: int = 8,
+    phrase_time_limit_s: int = 10,   # kept for signature parity
+    ambient_calib_s: float = 0.6     # kept for signature parity
+) -> str:
+    """
+    Streaming-first microphone capture with barge-in.
+    Returns ONLY a final transcript; never returns partial text.
+    Requires settings.json → { "asr_mode": "streaming", "asr_provider": "vosk",
+    "vosk_models": { "en": "...", "hi": "...", ... } }.
+    Falls back to the original one-shot recognizer automatically.
+    """
+    # If TTS or language flow is busy, keep legacy behavior
+    if tts_busy.is_set() or LANGUAGE_FLOW_ACTIVE:
+        return ""
+
+    if not skip_tts_gate:
+        try:
+            wait_for_tts_quiet(150)
+        except Exception:
+            pass
+    else:
+        if tts_busy.is_set() or LANGUAGE_FLOW_ACTIVE:
+            return ""
+
+    # Resolve settings (safe)
+    try:
+        s = load_settings()
+    except Exception:
+        s = {}
+
+    asr_mode      = s.get("asr_mode", "local")
+    provider      = s.get("asr_provider", "vosk")
+    sample_rate   = int(s.get("sample_rate", 16000))
+    device_index  = s.get("mic_device_index", None)
+    enable_webrtc = bool(s.get("aec", True) or s.get("ns", True) or s.get("agc", True))
+
+    # Per-language Vosk model path
+    lang_code = (selected_language or "en")
+    lang_key  = lang_code.split("-", 1)[0].lower()
+    vosk_models_map = s.get("vosk_models", {}) if isinstance(s.get("vosk_models", {}), dict) else {}
+    vosk_model = (
+        vosk_models_map.get(lang_key)
+        or s.get("vosk_model_path")
+        or os.environ.get("VOSK_MODEL_PATH")
+    )
+    if vosk_model and not os.path.isabs(vosk_model):
+        try:
+            from pathlib import Path
+            vosk_model = str((BASE_DIR / vosk_model).resolve())
+        except Exception:
+            pass
+
+    # Not in streaming mode → original one-shot
+    if asr_mode != "streaming":
+        return _listen_command_oneshot(
+            skip_tts_gate=skip_tts_gate,
+            disable_self_echo_filter=disable_self_echo_filter,
+            timeout_s=timeout_s,
+            phrase_time_limit_s=phrase_time_limit_s,
+            ambient_calib_s=ambient_calib_s
+        )
+
+    # Import streaming wrapper lazily
+    try:
+        from speech.asr_streaming import StreamingASR  # type: ignore
+    except Exception:
+        return _listen_command_oneshot(
+            skip_tts_gate=skip_tts_gate,
+            disable_self_echo_filter=disable_self_echo_filter,
+            timeout_s=timeout_s,
+            phrase_time_limit_s=phrase_time_limit_s,
+            ambient_calib_s=ambient_calib_s
+        )
+
+    # Locale metadata (Vosk uses the model you load; this is informational)
+    locale = {
+        "en": "en-US", "hi": "hi-IN", "fr": "fr-FR", "de": "de-DE", "es": "es-ES"
+    }.get(lang_key, "en-US")
+
+    # Confidence thresholds (barge-in + accept final)
+    wake_cfg     = s.get("wake", {}) if isinstance(s.get("wake", {}), dict) else {}
+    partial_conf = float(wake_cfg.get("partial_confidence", 0.65))
+    final_conf   = float(wake_cfg.get("final_confidence", 0.80))
+
+    asr = None
+    try:
+        asr = StreamingASR(
+            provider=provider,
+            language=locale,
+            sample_rate=sample_rate,
+            device_index=device_index,
+            enable_webrtc=enable_webrtc,
+            vosk_model_path=vosk_model,
+        )
+        asr.start()
+
+        import time as _t
+        deadline = _t.time() + float(timeout_s)
+
+        for r in asr.results():  # r: text, is_final, confidence
+            if _t.time() > deadline:
+                break
+            if not r or not getattr(r, "text", ""):
+                continue
+
+            text_piece = getattr(r, "text", "").strip()
+            conf       = float(getattr(r, "confidence", 0.0))
+            is_final   = bool(getattr(r, "is_final", False))
+
+            # Drop obvious self-echo
+            if not disable_self_echo_filter and _is_self_echo(text_piece):
+                continue
+
+            # Barge-in only (don’t return partials)
+            if (not is_final) and conf >= partial_conf:
+                try:
+                    if tts_busy.is_set():
+                        try_stop_tts_playback()
+                except Exception:
+                    pass
+                continue  # no partials returned
+
+            # Return ONLY a confident final
+            if is_final and conf >= final_conf:
+                try: _mark_command_activity()
+                except Exception: pass
+                return text_piece
+
+        # No confident final before timeout → return empty
+        return ""
+
+    except Exception:
+        # Any streaming failure → safe fallback
+        return _listen_command_oneshot(
+            skip_tts_gate=skip_tts_gate,
+            disable_self_echo_filter=disable_self_echo_filter,
+            timeout_s=timeout_s,
+            phrase_time_limit_s=phrase_time_limit_s,
+            ambient_calib_s=ambient_calib_s
+        )
+    finally:
+        try:
+            if asr:
+                asr.stop()
+        except Exception:
+            pass
 
 # =============================================================================
 # LANGUAGE SELECTION (FUZZY + PERSISTED)
@@ -1339,12 +1449,6 @@ def pick_language_interactive_fuzzy() -> str:
 # BRIGHTNESS / VOLUME (Cross-platform)
 # =============================================================================
 def change_brightness(increase=True, level=None):
-    """
-    Cross-platform brightness control (no end-user installs):
-    - Windows: WMI
-    - macOS: bundled 'brightness' CLI (we look inside app bundle), fallback to PATH
-    - Linux/WSL: bundled 'brightnessctl' → 'xbacklight' → 'light' → PATH
-    """
     try:
         if sys.platform == "win32":
             import wmi  # type: ignore[import-not-found]
@@ -1355,12 +1459,9 @@ def change_brightness(increase=True, level=None):
                 min(100, current_level + 30) if increase else max(0, current_level - 30)
             )
             methods.WmiSetBrightness(val, 0)
-
         elif sys.platform == "darwin":
-            # NEW: prefer bundled macbin/brightness, then MEIPASS, then PATH
             b = _brightness_cmd()
             if b:
-                # Try to read current (best-effort)
                 cur = None
                 try:
                     out = subprocess.check_output([b, "-l"], text=True, stderr=subprocess.DEVNULL)
@@ -1376,11 +1477,8 @@ def change_brightness(increase=True, level=None):
                 subprocess.run([b, f"{val/100:.2f}"],
                                check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             else:
-                # Packaging issue if we ever hit this (macbin/brightness missing)
                 raise RuntimeError("brightness tool not found in bundle")
-
         else:
-            # Linux / WSL: brightnessctl → xbacklight → light
             for tool in ("brightnessctl", "xbacklight", "light"):
                 exe = _which(tool)
                 if not exe:
@@ -1419,7 +1517,6 @@ def change_brightness(increase=True, level=None):
                                            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                         break
                 except Exception:
-                    # try next tool
                     continue
             else:
                 raise RuntimeError("No brightness tool found")
@@ -1449,12 +1546,6 @@ def change_brightness(increase=True, level=None):
         )
 
 def set_volume(level):
-    """
-    Cross-platform volume control:
-    - Windows: pycaw
-    - macOS: osascript
-    - Linux/WSL: pactl → pamixer → amixer
-    """
     level = max(0, min(100, int(level)))
     try:
         if sys.platform == "win32":
@@ -1467,11 +1558,9 @@ def set_volume(level):
             min_vol, max_vol, _ = volume.GetVolumeRange()
             new_level = min_vol + (level / 100.0) * (max_vol - min_vol)
             volume.SetMasterVolumeLevel(new_level, None)
-
         elif sys.platform == "darwin":
             subprocess.run(["osascript", "-e", f"set volume output volume {level}"],
                            check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
         else:
             if _which("pactl"):
                 subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{level}%"],
@@ -1551,6 +1640,22 @@ def set_wake_mode(enabled, *_, **__) -> None:
     s["wake_mode"] = b
     save_settings(s)
 
+# ─────────────────────────────────────────────────────────────────────────────
+# WAKE LISTENER: temporary pause (used by push-to-talk so hotword doesn’t double-trigger)
+# ─────────────────────────────────────────────────────────────────────────────
+_WAKE_PAUSED = False
+
+def pause_wake_detection(value: bool = True) -> None:
+    """Set a soft pause flag the wake-word loop should respect."""
+    global _WAKE_PAUSED
+    _WAKE_PAUSED = bool(value)
+
+def resume_wake_detection() -> None:
+    pause_wake_detection(False)
+
+def is_wake_paused() -> bool:
+    return _WAKE_PAUSED
+
 # =============================================================================
 # GRAPH HELPERS
 # =============================================================================
@@ -1575,10 +1680,8 @@ def announce_saved_graph(path: str) -> str:
 # USER ACTIVITY TIMESTAMP
 # =============================================================================
 _LAST_ACTIVITY_TS: float = 0.0
-
 def _mark_command_activity():
     global _LAST_ACTIVITY_TS
     _LAST_ACTIVITY_TS = time.time()
-
 def last_activity_ts() -> float:
     return _LAST_ACTIVITY_TS

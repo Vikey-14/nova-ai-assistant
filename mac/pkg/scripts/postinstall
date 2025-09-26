@@ -1,8 +1,9 @@
 #!/bin/bash
 # postinstall for Nova macOS PKG
-# - Always install LaunchAgent (so autostart works)
+# - Clean-slate: remove any previous per-user data (settings, memory, caches, logs)
+# - Install/refresh LaunchAgent so Nova Tray autostarts
+# - Be resilient to bundle names (Nova.app/NOVA.app, Nova Tray.app/NOVA Tray.app)
 # - Skip GUI/session actions on CI/headless runners
-# - Be resilient to bundle name (Nova.app vs NOVA.app)
 
 set -euo pipefail
 log() { echo "[postinstall] $*" >&2; }
@@ -11,9 +12,12 @@ log() { echo "[postinstall] $*" >&2; }
 APP="/Applications/Nova.app"
 [ -d "$APP" ] || APP="/Applications/NOVA.app"
 
-TRAY_APP="/Applications/Nova Tray.app/Contents/MacOS/NovaTray"
+TRAY_BUNDLE="/Applications/Nova Tray.app"
+[ -d "$TRAY_BUNDLE" ] || TRAY_BUNDLE="/Applications/NOVA Tray.app"
 
-# -------- Detect current console user (for Desktop alias / launchctl GUI) --------
+TRAY_APP="${TRAY_BUNDLE}/Contents/MacOS/NovaTray"
+
+# -------- Detect current console user (for data wipe & launchctl GUI) --------
 CURRENT_USER="$(
   /usr/sbin/scutil <<'SCUT' 2>/dev/null | awk '/Name :/ && $3 != "loginwindow" {print $3}' || true
 show State:/Users/ConsoleUser
@@ -24,15 +28,42 @@ if [ -z "${CURRENT_USER:-}" ] || [ "${CURRENT_USER}" = "root" ]; then
 fi
 log "CURRENT_USER='${CURRENT_USER:-<none>}'"
 
-# -------- Install LaunchAgent (ALWAYS) --------
+# -------- Clean-slate: wipe prior per-user Nova data (settings/caches/logs) ----
+if [[ -n "${CURRENT_USER:-}" && "${CURRENT_USER}" != "root" ]]; then
+  USER_HOME=$(/usr/bin/dscl . -read "/Users/${CURRENT_USER}" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+  USER_HOME=${USER_HOME:-"/Users/${CURRENT_USER}"}
+
+  log "Removing previous Nova data under ${USER_HOME}"
+  # Cover both historical names: Nova and NovaAI, plus bundle IDs com.nova* / com.novaai*
+  # Application Support
+  rm -rf "${USER_HOME}/Library/Application Support/Nova"    2>/dev/null || true
+  rm -rf "${USER_HOME}/Library/Application Support/NovaAI"  2>/dev/null || true
+  # Preferences
+  rm -rf "${USER_HOME}/Library/Preferences/com.nova."*      2>/dev/null || true
+  rm -rf "${USER_HOME}/Library/Preferences/com.novaai."*    2>/dev/null || true
+  # Caches
+  rm -rf "${USER_HOME}/Library/Caches/com.nova."*           2>/dev/null || true
+  rm -rf "${USER_HOME}/Library/Caches/com.novaai."*         2>/dev/null || true
+  # Logs
+  rm -rf "${USER_HOME}/Library/Logs/Nova"                   2>/dev/null || true
+  rm -rf "${USER_HOME}/Library/Logs/NovaAI"                 2>/dev/null || true
+  # Old per-user LaunchAgents (if any from past versions)
+  rm -f  "${USER_HOME}/Library/LaunchAgents/com.nova.tray.plist"    2>/dev/null || true
+  rm -f  "${USER_HOME}/Library/LaunchAgents/com.novaai.tray.plist"  2>/dev/null || true
+
+  # Make sure ownership is sane (best-effort)
+  chown -R "${CURRENT_USER}":staff "${USER_HOME}" 2>/dev/null || true
+fi
+
+# -------- Install LaunchAgent (ALWAYS) -----------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PLIST_SRC="${SCRIPT_DIR}/com.novaai.tray.plist"
+PLIST_SRC="${SCRIPT_DIR}/com.novaai.tray.plist"        # keep your existing packaged plist name
 PLIST_DST="/Library/LaunchAgents/com.novaai.tray.plist"
 
 mkdir -p "/Library/LaunchAgents"
 
 if [[ -f "$PLIST_SRC" ]]; then
-  log "Installing LaunchAgent from repo plist -> $PLIST_DST"
+  log "Installing LaunchAgent from packaged plist -> $PLIST_DST"
   cp -f "$PLIST_SRC" "$PLIST_DST"
 else
   log "WARN: $PLIST_SRC not found; writing minimal fallback plist -> $PLIST_DST"
@@ -54,13 +85,13 @@ fi
 chown root:wheel "$PLIST_DST" 2>/dev/null || true
 chmod 0644 "$PLIST_DST" 2>/dev/null || true
 
-# -------- Skip GUI actions on CI/headless runners --------
+# -------- Skip GUI actions on CI/headless runners ------------------------------
 if [[ "${GITHUB_ACTIONS:-}" == "true" || "${CI:-}" == "true" ]]; then
-  log "CI/headless environment detected; skipping Desktop alias and launchctl GUI steps."
+  log "CI/headless detected; skipping Desktop alias and launchctl GUI steps."
   exit 0
 fi
 
-# -------- Create a Desktop alias/symlink for the app (best-effort) --------
+# -------- Create a Desktop alias/symlink for the app (best-effort) ------------
 if [[ -n "${CURRENT_USER:-}" && "${CURRENT_USER}" != "root" && -d "$APP" ]]; then
   DESK="/Users/${CURRENT_USER}/Desktop"
   mkdir -p "$DESK" || true
@@ -85,17 +116,17 @@ OSA
   if [[ ! -e "$DESK/$APP_BASENAME" ]]; then
     ln -sfn "$APP" "$DESK/$APP_BASENAME" || true
   fi
-  chown -h "$CURRENT_USER":staff "$DESK/$APP_BASENAME" 2>/dev/null || true
+  chown -h "${CURRENT_USER}":staff "$DESK/$APP_BASENAME" 2>/dev/null || true
 fi
 
-# -------- Start (or restart) tray now in the user's GUI session (best-effort) --------
-if [[ -n "${CURRENT_USER:-}" && -x "$TRAY_APP" ]]; then
+# -------- Start (or restart) tray now in user's GUI session (best-effort) -----
+if [[ -n "${CURRENT_USER:-}" && -x "$TRAY_APP" && -f "$PLIST_DST" ]]; then
   USER_UID="$(/usr/bin/id -u "$CURRENT_USER" 2>/dev/null || true)"
-  if [[ -n "${USER_UID:-}" && -f "$PLIST_DST" ]]; then
-    launchctl bootout   "gui/${USER_UID}/com.novaai.tray" >/dev/null 2>&1 || true
-    launchctl bootstrap "gui/${USER_UID}" "$PLIST_DST"     >/dev/null 2>&1 || true
-    launchctl enable    "gui/${USER_UID}/com.novaai.tray"  >/dev/null 2>&1 || true
-    launchctl kickstart -k "gui/${USER_UID}/com.novaai.tray" >/dev/null 2>&1 || true
+  if [[ -n "${USER_UID:-}" ]]; then
+    launchctl bootout   "gui/${USER_UID}/com.novaai.tray"     >/dev/null 2>&1 || true
+    launchctl bootstrap "gui/${USER_UID}" "$PLIST_DST"        >/dev/null 2>&1 || true
+    launchctl enable    "gui/${USER_UID}/com.novaai.tray"     >/dev/null 2>&1 || true
+    launchctl kickstart -k "gui/${USER_UID}/com.novaai.tray"  >/dev/null 2>&1 || true
   fi
 fi
 

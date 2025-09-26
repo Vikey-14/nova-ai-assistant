@@ -176,6 +176,7 @@ dpkg --print-architecture
 - ARM64 (Raspberry Pi 4/5 64-bit, ARM laptops/servers):  
   [👉 nova_ai_assistant_arm64.deb](https://github.com/Vikey-14/nova-ai-assistant/releases/latest/download/nova_ai_assistant_arm64.deb)
 
+
 **Install (APT recommended):**
 ```bash
 # x86_64

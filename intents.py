@@ -10,6 +10,9 @@ from difflib import SequenceMatcher
 import re
 import unicodedata
 
+# ✨ NEW: fuzzy helper for intent matching
+from fuzzy_utils import fuzzy_in
+
 # -------------------------------
 # Supported languages + aliases
 # -------------------------------
@@ -95,6 +98,17 @@ def get_language_prompt_text(ui_lang: str) -> str:
         "es": f"Dime en qué idioma quieres hablar conmigo: {_build_language_list_for('es')}.",
     }.get(ui_lang, f"Please tell me the language you'd like to use to communicate with me: {_build_language_list_for('en')}.")
 
+
+def get_invalid_language_voice_retry(ui: str) -> str:
+    lines = {
+        "en": "I didn’t recognize that language. Please say or type a supported language (English, Hindi, French, German, or Spanish).",
+        "hi": "मैं उस भाषा को पहचान नहीं पाई। कृपया कोई समर्थित भाषा बोलें या टाइप करें (अंग्रेज़ी, हिन्दी, फ़्रेंच, जर्मन या स्पैनिश)।",
+        "de": "Diese Sprache habe ich nicht erkannt. Bitte sag oder tippe eine unterstützte Sprache (Englisch, Hindi, Französisch, Deutsch oder Spanisch).",
+        "fr": "Je n’ai pas reconnu cette langue. Dis ou tape une langue prise en charge (anglais, hindi, français, allemand ou espagnol).",
+        "es": "No reconocí ese idioma. Di o escribe un idioma compatible (inglés, hindi, francés, alemán o español).",
+    }
+    return lines.get((ui or "en").lower(), lines["en"])
+
 # Spoken invalid → jump to typing (localized, mentions the chatbox)
 _INVALID_LANGUAGE_VOICE_TO_TYPED = {
     "en": "Please provide a valid language below in the chatbox provided, such as English, Hindi, German, French, or Spanish.",
@@ -172,27 +186,63 @@ _CHANGE_LANG_PATTERNS = [
     r"\b(idioma)\s*(cambiar|modificar)\b",
     rf"\bcambiar\s+(?:a|al)\s+{_LANG_WORDS_RE}\b",
 ]
-
 _CHANGE_LANG_RE = re.compile("|".join(f"(?:{p})" for p in _CHANGE_LANG_PATTERNS), re.I | re.U)
+
+# ✨ NEW: common typo normalization for the change-language intent
+_COMMON_REPLACEMENTS = {
+    "chnage": "change",
+    "chagne": "change",
+    "chaneg": "change",
+    "langauge": "language",
+    "languaeg": "language",
+    "lanaguage": "language",
+    "languge": "language",
+    "langugage": "language",
+    "lang": "language",  # short-hand to help "switch lang", "set lang"
+}
+def _fix_common_typos(s: str) -> str:
+    t = (s or "").lower()
+    for bad, good in _COMMON_REPLACEMENTS.items():
+        t = t.replace(bad, good)
+    return t
+
+# ✨ NEW: fuzzy phrases for tolerant matching
+_FUZZY_CHANGE_LANG_PHRASES = [
+    "change language",
+    "switch language",
+    "set language",
+    "language change",
+    "change lang",
+    "switch lang",
+    "set lang",
+]
 
 def said_change_language(text: str) -> bool:
     """True if the user is asking to change the app language."""
     if not text:
         return False
-    t = text.strip().lower()
 
-    # Fast-path for the most common phrasing
+    # 1) Normalize common misspellings and spacing
+    t = _fix_common_typos(text.strip().lower())
+
+    # 2) Fuzzy first: handles minor typos and joined words (e.g., 'changelanguage')
+    #    cutoff ~0.72 matches small mistakes; compact_cutoff keeps very-tight joins strict
+    if fuzzy_in(t, _FUZZY_CHANGE_LANG_PHRASES, cutoff=0.72, compact_cutoff=0.90):
+        return True
+
+    # 3) Existing fast paths
     if "change language" in t or "switch language" in t:
         return True
 
     if _CHANGE_LANG_RE.search(t):
         return True
 
-    # Heuristic: a change/switch verb + any known language word anywhere
+    # 4) Heuristic: change/switch verb + any known language token anywhere
     verb_hints = (
-        "change","switch","set","update","modify",
-        "भाषा","bhasha","sprache","langue","idioma",
-        "cambiar","changer","ändern","wechseln",
+        "change", "switch", "set", "update", "modify",
+        "भाषा", "bhasha", "sprache", "langue", "idioma",
+        "cambiar", "changer", "ändern", "wechseln",
+        "language",  # include noun to help after normalization
     )
     if any(v in t for v in verb_hints):
         for w in _ALL_LANG_WORDS:

@@ -10,13 +10,17 @@ pystray
 Pillow
 
 # --- Speech / Audio ---
-pyttsx3
-SpeechRecognition
-pyaudio
-gTTS
-playsound
+pyttsx3==2.99
+SpeechRecognition==3.14.3
+PyAudio==0.2.14          # needs PortAudio on the build machine (brew install portaudio)
+gTTS==2.5.4
+playsound==1.3.0
 edge-tts>=6.1.0
-aiohttp>=3.9   # (edge-tts depends on this; you can omit if you prefer)
+aiohttp>=3.9             # edge-tts depends on this
+
+# --- Streaming ASR (offline, one-shot) ---
+vosk>=0.3.45             # REQUIRED: you ship the models; this is the Python API
+webrtcvad>=2.0.10        # OPTIONAL but recommended (snappier barge-in)
 
 # --- NLP / Web / Utilities ---
 langdetect

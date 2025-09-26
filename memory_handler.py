@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import io
+import shutil
 import tempfile
 import threading
 from datetime import datetime
@@ -12,19 +13,40 @@ from typing import Any, Dict, List, Optional
 
 # Use utils helpers so paths/logs work in dev + PyInstaller
 from utils import pkg_path, logger
+from platform_adapter import get_backend
+_backend = get_backend()
 
 # ------------------------------------------------------------------------------
-# Paths (absolute, PyInstaller-safe)
+# Paths (stable per-user dir, with one-time migration from legacy bundle dir)
 # ------------------------------------------------------------------------------
-DATA_DIR: Path = pkg_path("data")
+# Legacy location (inside app/repo bundle) that caused the issue:
+LEGACY_DATA_DIR: Path = pkg_path("data")
+
+# New stable per-user location (never bundled into the exe):
+DATA_DIR: Path = (_backend.user_data_dir() / "data").resolve()
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 MEMORY_PATH: Path = DATA_DIR / "memory.json"
 NOTES_PATH:  Path = DATA_DIR / "notes.json"
 
+# One-time migration from legacy to per-user (copy only if new files don't exist)
+try:
+    legacy_memory = LEGACY_DATA_DIR / "memory.json"
+    legacy_notes  = LEGACY_DATA_DIR / "notes.json"
+    if legacy_memory.exists() and not MEMORY_PATH.exists():
+        shutil.copy2(legacy_memory, MEMORY_PATH)
+        logger.info("Migrated legacy memory.json to user data dir")
+    if legacy_notes.exists() and not NOTES_PATH.exists():
+        shutil.copy2(legacy_notes, NOTES_PATH)
+        logger.info("Migrated legacy notes.json to user data dir")
+except Exception as e:
+    try:
+        logger.error(f"Memory migration skipped: {e}")
+    except Exception:
+        pass
+
 # Single process-wide lock to protect JSON read/writes
 _LOCK = threading.Lock()
-
 
 # ------------------------------------------------------------------------------
 # Low-level JSON helpers (safe + atomic with fsync)
@@ -82,7 +104,6 @@ def _ensure_files():
             _atomic_dump_json(NOTES_PATH, [])
             logger.info("🗒️  Created new notes.json")
 
-
 # ------------------------------------------------------------------------------
 # Public API — Memory (key/value)
 # ------------------------------------------------------------------------------
@@ -134,7 +155,6 @@ def clear_memory(key: Optional[str] = None) -> None:
             removed = data.pop(key, None)
             logger.info(f"🧹 Cleared memory key: {key} — Found: {removed is not None}")
         _atomic_dump_json(MEMORY_PATH, data)
-
 
 # ------------------------------------------------------------------------------
 # Public API — Notes (list of {timestamp, content})
@@ -211,7 +231,6 @@ def update_note(index: int, new_content: str) -> bool:
         else:
             logger.warning(f"⚠️ Invalid note index: {index}")
             return False
-
 
 # ------------------------------------------------------------------------------
 # Optional helpers for dev/diagnostics

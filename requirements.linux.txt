@@ -1,23 +1,33 @@
-SpeechRecognition
-PyAudio
-gTTS
-playsound
-pyttsx3
+# --- Voice / Audio ---
+SpeechRecognition==3.14.3
+PyAudio==0.2.14            # needs system PortAudio dev headers
+gTTS==2.5.4
+playsound==1.3.0
+pyttsx3==2.99
+pygame==2.6.1
+edge-tts>=6.1.0
+aiohttp>=3.9
+
+# --- Streaming ASR (offline, one-shot) ---
+vosk>=0.3.45              # REQUIRED: you’re shipping the models; this provides the Python API
+webrtcvad>=2.0.10         # OPTIONAL but recommended (snappier barge-in)
+
+# --- Tray & UI ---
 pystray
 Pillow
+
+# --- NLP / Web / Utilities ---
 langdetect
 requests>=2.31.0
 python-dotenv
 wikipedia
-holidays
 beautifulsoup4
 dateparser
+holidays
+platformdirs
+psutil
+
+# --- Math / Plotting ---
 numpy>=2.0
 sympy
 matplotlib
-psutil
-platformdirs
-pygame
-edge-tts>=6.1.0
-aiohttp>=3.9   
-

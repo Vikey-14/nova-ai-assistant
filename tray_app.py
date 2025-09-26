@@ -49,7 +49,7 @@ except Exception:
 try:
     from wake_word_listener import start_wake_listener_thread, stop_wake_listener_thread
 except Exception:
-    def start_wake_listener_thread(): 
+    def start_wake_listener_thread():
         pass
     def stop_wake_listener_thread():
         pass
@@ -348,19 +348,38 @@ def show_quick_start(*, write_sentinel: bool = True):
             _stars_after[0] = _safe_after(50, animate_stars)
         _stars_after[0] = _safe_after(50, animate_stars)
 
-        canvas.create_text(WIDTH // 2, 156,
-                           text="Nova is running in the system tray.",
-                           font=("Segoe UI", 11), fill="#dcdcff",
-                           width=WIDTH - 60, justify="center")
-        canvas.create_text(WIDTH // 2, 198,
-                           text=("Tip: If you don’t see the tray icon, click the ^ arrow near the clock.\n"
-                                 "You can drag it out to keep it always visible."),
-                           font=("Segoe UI", 10), fill="#9aa0c7",
-                           width=WIDTH - 60, justify="center")
+        # -------- NEW: OS-aware copy + fonts (Windows & macOS) --------
+        if IS_MAC:
+            line1 = "Nova is running in the menu bar."
+            line2 = ("Tip: Look for the Nova icon in the top-right menu bar.\n"
+                     "If you don’t see it, open System Settings → Control Center and show/pin Nova.")
+            f_title = ("Helvetica", 11)
+            f_tip   = ("Helvetica", 10)
+        else:
+            # Windows (and default)
+            line1 = "Nova is running in the system tray."
+            line2 = ("Tip: If you don’t see the tray icon, click the ^ arrow near the clock.\n"
+                     "You can drag it out to keep it always visible.")
+            f_title = ("Segoe UI", 11)
+            f_tip   = ("Segoe UI", 10)
+
+        # Body copy (same positions/sizes)
+        canvas.create_text(
+            WIDTH // 2, 148,
+            text=line1,
+            font=f_title, fill="#dcdcff",
+            width=WIDTH - 60, justify="center"
+        )
+        canvas.create_text(
+            WIDTH // 2, 198,
+            text=line2,
+            font=f_tip, fill="#9aa0c7",
+            width=WIDTH - 60, justify="center"
+        )
 
         base, hover = "#5a4fcf", "#9b95ff"
         got_it = tk.Button(popup, text="Got it!", command=_on_close,
-                           font=("Segoe UI", 10, "bold"),
+                           font=(f_tip[0], 10, "bold"),
                            bg=base, fg="white",
                            activebackground=hover, activeforeground="white",
                            relief="flat", bd=0, highlightthickness=0,

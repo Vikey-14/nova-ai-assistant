@@ -18,11 +18,11 @@
     <key>SuccessfulExit</key><false/>
   </dict>
 
-  <!-- Optional but nice: only load in GUI sessions -->
+  <!-- Only in GUI (Aqua) sessions -->
   <key>LimitLoadToSessionType</key>
   <array><string>Aqua</string></array>
 
-  <!-- Optional logs for debugging -->
+  <!-- Optional debug logs -->
   <key>StandardOutPath</key><string>/tmp/nova-tray.out.log</string>
   <key>StandardErrorPath</key><string>/tmp/nova-tray.err.log</string>
 </dict></plist>
